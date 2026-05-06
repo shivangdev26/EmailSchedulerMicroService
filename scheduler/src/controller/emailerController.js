@@ -1,7 +1,8 @@
 const { emailQueue, connection } = require("../bullmq");
 const { getAuthToken } = require("../services/apiAuthService");
 const { updateEmailQueueStatus } = require("../services/ackService");
-
+const dotenv = require("dotenv");
+dotenv.config();
 const triggerEmailer = async (req, res) => {
   console.log("=== EMAILER TRIGGER API CALLED ===");
   console.log("Request body:", req.body);

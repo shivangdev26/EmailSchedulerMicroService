@@ -8,6 +8,7 @@ const { triggerEmailer } = require("../controller/emailerController");
 console.log("Registering EMAILER trigger route: /email_scheduler/api/trigger");
 
 router.use("/v1", userRoutes);
+router.post("/trigger", triggerEvent);
 router.post(
   "/email_scheduler/api/trigger",
   (req, res, next) => {
