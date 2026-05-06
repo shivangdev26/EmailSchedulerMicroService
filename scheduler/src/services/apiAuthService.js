@@ -1,3 +1,5 @@
+const axios = require("axios");
+
 const buildApiHeaders = (options = {}) => {
   const {
     bearerToken,
@@ -94,8 +96,87 @@ const decodeJwtPayload = (token = "") => {
   }
 };
 
+const getAuthToken = async (connection, dbName = "") => {
+  const cacheKey = dbName ? `api_auth_token_${dbName}` : "api_auth_token";
+  try {
+    // Check Redis for cached token
+    let token = await connection.get(cacheKey);
+
+    if (token) {
+      console.log(` Using cached auth token ${dbName ? `for ${dbName}` : ""}`);
+      return token;
+    }
+
+    console.log(
+      ` Fetching new auth token from Login API ${dbName ? `for ${dbName}` : ""}`,
+    );
+
+    // Try multiple login approaches
+    let response;
+
+    // First try with database name
+    try {
+      const loginPayload = {
+        username: process.env.LOGIN_USERNAME,
+        password: process.env.LOGIN_PASSWORD,
+      };
+
+      if (dbName) {
+        loginPayload.dbName = dbName;
+      }
+
+      console.log(
+        `Trying login with payload:`,
+        JSON.stringify(loginPayload, null, 2),
+      );
+      response = await axios.post(process.env.LOGIN_API_URL, loginPayload);
+    } catch (error) {
+      console.log(`Login with dbName failed: ${error.message}`);
+
+      // Try without database name
+      try {
+        const loginPayload = {
+          username: process.env.LOGIN_USERNAME,
+          password: process.env.LOGIN_PASSWORD,
+        };
+
+        console.log(
+          `Trying login without dbName:`,
+          JSON.stringify(loginPayload, null, 2),
+        );
+        response = await axios.post(process.env.LOGIN_API_URL, loginPayload);
+      } catch (error2) {
+        console.log(`Login without dbName also failed: ${error2.message}`);
+        throw error2;
+      }
+    }
+
+    token =
+      response.data?.access_token ||
+      response.data?.token ||
+      response.data?.data?.token;
+
+    if (token) {
+      // Store in Redis for 24 hours (86400 seconds)
+      await connection.set(cacheKey, token, "EX", 86400);
+      return token;
+    }
+
+    throw new Error(
+      `Failed to get token from Login API: ${JSON.stringify(response.data)}`,
+    );
+  } catch (error) {
+    console.error(
+      " Error in getAuthToken:",
+      error.response?.data || error.message,
+    );
+    throw error;
+  }
+};
+
 module.exports = {
   buildApiHeaders,
   decodeJwtPayload,
   extractBearerToken,
+  getAuthToken,
 };

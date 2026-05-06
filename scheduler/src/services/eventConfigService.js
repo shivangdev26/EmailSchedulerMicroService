@@ -32,4 +32,30 @@ const fetchEventConfigs = async ({ token } = {}) => {
   }
 };
 
-module.exports = { fetchEventConfigs };
+const fetchEventConfigById = async ({ id, token } = {}) => {
+  try {
+    const res = await axios({
+      method: "GET",
+      url: `${process.env.EMAILER_EVENT_CONFIG_BY_ID_URL}${id}`,
+      headers: {
+        ...buildApiHeaders({
+          bearerToken: token,
+        }),
+        "Content-Type": "application/json",
+      },
+    });
+
+    console.log(` Event config API (ID: ${id}) status:`, res.status);
+
+    return res.data?.data?.[0] || res.data?.data || null;
+  } catch (err) {
+    console.error(
+      ` Failed to fetch event config (ID: ${id}):`,
+      err.response?.status,
+      err.message,
+    );
+    return null;
+  }
+};
+
+module.exports = { fetchEventConfigs, fetchEventConfigById };

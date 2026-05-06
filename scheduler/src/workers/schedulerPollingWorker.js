@@ -280,7 +280,7 @@
 //         const jobKey = job.key;
 
 //         if (!jobKey) {
-//           console.log("⚠️ No key found:", job);
+//           console.log(" No key found:", job);
 //           continue;
 //         }
 
@@ -462,6 +462,7 @@ const parseScheduleDetails = (details, tz = "UTC") => {
       endH,
       endM,
       startDate,
+      tz,
     };
   }
   return null;
@@ -548,7 +549,10 @@ const startSchedulerPolling = () => {
               if (parsed.type === "ONE") {
                 const delay = parsed.date.diff(dayjs.utc());
 
-                if (delay < -60000) continue;
+                if (delay < -1800000) {
+                  // 30 minutes instead of 1 minute
+                  continue;
+                }
 
                 const jobId = `${db}-one-${action.id}-${parsed.date.valueOf()}`;
 
@@ -565,29 +569,76 @@ const startSchedulerPolling = () => {
               }
               if (parsed.type === "ADVANCED") {
                 await addRepeatJob(
-                  { payload, advanced: parsed },
+                  { ...payload, advanced: parsed },
                   `*/${parsed.everyMinutes} * * * *`,
                   `${db}-adv-${action.id}`,
                 );
 
-                console.log("ADV:", action.id);
+                console.log(" ADV:", action.id);
                 continue;
               }
               if (parsed.type === "DAILY") {
-                await addRepeatJob(
-                  payload,
-                  parsed.cron,
-                  `${db}-daily-${action.id}`,
+                // Check date boundaries if present
+                const now = dayjs.utc();
+                let shouldSchedule = true;
+
+                // Extract dates from schedule_details for boundary checking
+                const startDateMatch = action.schedule_details.match(
+                  /starting on (\d{2})\/(\d{2})\/(\d{4})/i,
                 );
+                const endDateMatch = action.schedule_details.match(
+                  /ending on (\d{2})\/(\d{2})\/(\d{4})/i,
+                );
+
+                if (startDateMatch) {
+                  const startDate = dayjs
+                    .tz(
+                      `${startDateMatch[3]}-${startDateMatch[2]}-${startDateMatch[1]} 00:00`,
+                      "UTC",
+                    )
+                    .utc();
+                  if (now.isBefore(startDate)) {
+                    shouldSchedule = false;
+                  }
+                }
+
+                if (endDateMatch && shouldSchedule) {
+                  const endDate = dayjs
+                    .tz(
+                      `${endDateMatch[3]}-${endDateMatch[2]}-${endDateMatch[1]} 23:59`,
+                      "UTC",
+                    )
+                    .utc();
+                  if (now.isAfter(endDate)) {
+                    shouldSchedule = false;
+                  }
+                }
+
+                if (shouldSchedule) {
+                  await addRepeatJob(
+                    payload,
+                    parsed.cron,
+                    `${db}-daily-${action.id}`,
+                  );
+                }
                 continue;
               }
             }
 
-            const cron = parseScheduleTime(action.schedule_time);
+            if (
+              !action.schedule_details ||
+              action.schedule_details.trim() === ""
+            ) {
+              const cron = parseScheduleTime(action.schedule_time);
 
-            if (cron) {
-              await addRepeatJob(payload, cron, `${db}-fallback-${action.id}`);
-              continue;
+              if (cron) {
+                await addRepeatJob(
+                  payload,
+                  cron,
+                  `${db}-fallback-${action.id}`,
+                );
+                continue;
+              }
             }
 
             console.log(" SKIPPED:", action.id);

@@ -43,8 +43,8 @@ const getSchedulerActionsBody = () =>
 const getEventConfigurationsBody = () =>
   parseRequestBody(process.env.EMAILER_EVENT_CONFIG_BODY || "");
 
-const buildActionApiHeaders = () =>
-  buildApiHeaders({
+const buildActionApiHeaders = (customToken) => {
+  const headers = buildApiHeaders({
     bearerTokenEnv: "EMAILER_ACTIONS_BEARER_TOKEN",
     basicUsernameEnv: "EMAILER_ACTIONS_BASIC_USERNAME",
     basicPasswordEnv: "EMAILER_ACTIONS_BASIC_PASSWORD",
@@ -64,8 +64,17 @@ const buildActionApiHeaders = () =>
     apiKeyFallbackEnvs: ["EMAILER_API_KEY", "EMAILER_SMTP_ACCOUNT_API_KEY"],
   });
 
-const executeRequest = async (url, method, body) => {
-  const headers = buildActionApiHeaders();
+  if (customToken) {
+    headers.Authorization = customToken.startsWith("Bearer ")
+      ? customToken
+      : `Bearer ${customToken}`;
+  }
+
+  return headers;
+};
+
+const executeRequest = async (url, method, body, customToken) => {
+  const headers = buildActionApiHeaders(customToken);
   const requestOptions = {
     method,
     headers,
@@ -82,9 +91,9 @@ const executeRequest = async (url, method, body) => {
   return fetch(url, requestOptions);
 };
 
-const fetchJson = async (url, method, body) => {
+const fetchJson = async (url, method, body, customToken) => {
   const normalizedMethod = (method || "GET").toUpperCase();
-  let response = await executeRequest(url, normalizedMethod, body);
+  let response = await executeRequest(url, normalizedMethod, body, customToken);
   let finalMethod = normalizedMethod;
 
   if (
@@ -94,7 +103,7 @@ const fetchJson = async (url, method, body) => {
     console.log(
       `Received ${response.status} for ${url} with GET. Retrying with POST.`,
     );
-    response = await executeRequest(url, "POST", body);
+    response = await executeRequest(url, "POST", body, customToken);
     finalMethod = "POST";
   }
 
@@ -235,7 +244,7 @@ const extractCollection = (payload) => {
 //   };
 // };
 
-const fetchSchedulerActions = async (customUrl) => {
+const fetchSchedulerActions = async (customUrl, customToken) => {
   const url = customUrl || getSchedulerActionsUrl();
 
   try {
@@ -243,6 +252,7 @@ const fetchSchedulerActions = async (customUrl) => {
       url,
       getSchedulerActionsMethod(),
       getSchedulerActionsBody(),
+      customToken,
     );
 
     const normalizedPayload = normalizePayload(payload);
@@ -280,13 +290,14 @@ const fetchSchedulerActions = async (customUrl) => {
 //   };
 // };
 
-const fetchEventConfigurations = async (customUrl) => {
+const fetchEventConfigurations = async (customUrl, customToken) => {
   const url = customUrl || getEventConfigurationsUrl();
 
   const { payload, method } = await fetchJson(
     url,
     getEventConfigurationsMethod(),
     getEventConfigurationsBody(),
+    customToken,
   );
 
   const normalizedPayload = normalizePayload(payload);

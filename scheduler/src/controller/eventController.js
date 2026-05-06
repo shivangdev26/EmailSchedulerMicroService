@@ -1,108 +1,65 @@
-const { sendEventEmail } = require("../services/eventEmailProducer");
-const { fetchSmtpConfig } = require("../services/emailerSmtpAccountService");
-const { fetchEventConfigs } = require("../services/eventConfigService.js");
-const {
-  decodeJwtPayload,
-  extractBearerToken,
-} = require("../services/apiAuthService");
-
-const readDbName = (record) =>
-  record?.dbname ||
-  record?.db_name ||
-  record?.dbName ||
-  record?.DBName ||
-  record?.DB_NAME ||
-  record?.database_name ||
-  record?.Database_Name ||
-  "";
+const { emailQueue, connection } = require("../bullmq");
+const { getAuthToken } = require("../services/apiAuthService");
+const { updateEmailQueueStatus } = require("../services/ackService");
 
 const triggerEvent = async (req, res) => {
   try {
-    const { event_name, triggered_on } = req.body;
-    const token = extractBearerToken(req.headers.authorization);
-    const tokenPayload = decodeJwtPayload(token);
-    const requestDbName = tokenPayload?.dbname || tokenPayload?.db_name || "";
+    const { dbName, ID, Email_Event_Config_Id } = req.body;
 
-    if (!token) {
-      return res.status(401).json({
+    if (!dbName || !Email_Event_Config_Id) {
+      return res.status(400).json({
         success: false,
-        message: "Authorization token is required",
+        message: "dbName and Email_Event_Config_Id are required",
       });
     }
 
-    const configs = await fetchEventConfigs({ token });
+    console.log(" Received trigger:", { dbName, ID, Email_Event_Config_Id });
 
-    const scopedConfigs = requestDbName
-      ? configs.filter((config) => {
-          const configDbName = readDbName(config);
+    // 1. Get auth token (from Redis or Login API)
+    const token = await getAuthToken(connection, dbName);
 
-          if (!configDbName) {
-            return true;
-          }
-
-          return (
-            String(configDbName).trim().toLowerCase() ===
-            String(requestDbName).trim().toLowerCase()
-          );
-        })
-      : configs;
-
-    const matched = scopedConfigs.filter(
-      (e) => e.event_name === event_name && e.triggered_on === triggered_on,
-      e.is_enabled === "Y",
+    // 2. Store in BullMQ
+    await emailQueue.add(
+      "process-email-trigger",
+      {
+        dbName,
+        ID, // This is the ID for acknowledgment? Or event id? User says "id, event id, db_name"
+        Email_Event_Config_Id,
+      },
+      {
+        attempts: 3,
+        backoff: {
+          type: "fixed",
+          delay: 5000,
+        },
+        removeOnComplete: true,
+      },
     );
 
-    if (!matched.length) {
-      return res.status(404).json({
-        success: false,
-        message: "No matching event config found",
-      });
-    }
-
-    const smtp = await fetchSmtpConfig({ token });
-
-    if (!smtp) {
-      return res.status(503).json({
-        success: false,
-        message: "SMTP config unavailable",
-      });
-    }
-    const normalizeRecipients = (value) => {
-      if (!value) return [];
-
-      if (Array.isArray(value)) {
-        return value.map((v) => String(v).trim()).filter(Boolean);
-      }
-
-      if (typeof value === "string") {
-        return value
-          .split(/[;,]/)
-          .map((v) => v.trim())
-          .filter(Boolean);
-      }
-
-      return [];
-    };
-    for (const event of matched) {
-      await sendEventEmail({
-        smtp,
-        event: {
-          to: normalizeRecipients(event.recipients),
-          cc: normalizeRecipients(event.cc),
-          bcc: normalizeRecipients(event.bcc),
-          subject: event.event_name,
-          message: `Triggered on ${event.triggered_on}`,
-        },
-      });
-    }
+    // 3. Call Acknowledgment API (Initial)
+    // User: "update ack_status to Y , status pending"
+    await updateEmailQueueStatus({
+      token,
+      id: ID,
+      email_queue_id: Email_Event_Config_Id,
+      ack_status: "Y",
+      tgr_status: "Y", // Ensure both are Y on trigger
+      status: "pending",
+      dbName: dbName,
+    });
 
     return res.json({
       success: true,
-      message: "Event processed & emails queued ",
+      message: "Event triggered and queued for processing",
+      token: token,
     });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error triggering event" });
+  } catch (error) {
+    console.error(" Error in triggerEvent:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
   }
 };
 
