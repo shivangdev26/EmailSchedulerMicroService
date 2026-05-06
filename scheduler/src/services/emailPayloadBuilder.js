@@ -271,6 +271,10 @@ const buildEmailPayloads = ({
       }
 
       const subject = firstDefined(
+        action.display_name,
+        action.Display_Name,
+        action.title,
+        action.Title,
         action.subject,
         action.Subject,
         action.emailSubject,
@@ -279,6 +283,10 @@ const buildEmailPayloads = ({
         action.Event_Name,
         action.triggered_on,
         action.Triggered_On,
+        eventConfiguration?.display_name,
+        eventConfiguration?.Display_Name,
+        eventConfiguration?.title,
+        eventConfiguration?.Title,
         eventConfiguration?.subject,
         eventConfiguration?.Subject,
         eventConfiguration?.emailSubject,

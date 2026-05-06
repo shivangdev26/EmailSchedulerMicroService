@@ -39,7 +39,7 @@ const buildEmailPayloadFromConfig = (config, smtp) => {
     to: normalizeRecipients(config.recipients),
     cc: normalizeRecipients(config.cc),
     bcc: normalizeRecipients(config.bcc),
-    subject: config.event_name || config.title || "No Subject",
+    subject: config.title || "No Subject",
     text: config.msg_body || "No body",
     html: config.msg_body ? `<div>${config.msg_body}</div>` : "No content",
   };
@@ -59,9 +59,7 @@ const startEmailWorker = () => {
           const tz = advanced?.tz || action?.timezone || "UTC";
           const now = dayjs().tz(tz);
 
-          // 1. Boundary checks for ADVANCED schedules
           if (advanced) {
-            // Check Start Date
             const startDate = dayjs(advanced.startDate).tz(tz);
             if (now.isBefore(startDate, "day")) {
               console.log(
@@ -102,7 +100,11 @@ const startEmailWorker = () => {
             to: normalizeRecipients(action.to),
             cc: normalizeRecipients(action.cc),
             bcc: normalizeRecipients(action.bcc),
-            subject: action.subject || "Scheduled Email",
+            subject:
+              action.display_name ||
+              action.title ||
+              action.subject ||
+              "Scheduled Email",
             text: action.display_name || "No content",
             html: action.display_name
               ? `<div>${action.display_name}</div>`
