@@ -12,6 +12,8 @@ const { buildApiHeaders } = require("./apiAuthService");
  * @param {string} [params.tgr_status='s'] - 'Y' or 's'
  * @param {string} params.status - 'pending', 'Y' (success), or 'failed'
  * @param {string} [params.dbName] - Database name to include in user_fields
+ * @param {number} [params.EntityId] - Entity ID to include in user_fields
+ * @param {number} [params.ChildId] - Child ID to include in user_fields
  * @param {string} [params.response] - Optional response message or error reason
  * @param {number} [params.retry_count] - Current retry count
  */
@@ -23,6 +25,8 @@ const updateEmailQueueStatus = async ({
   tgr_status = "s",
   status,
   dbName = "",
+  EntityId = 0,
+  ChildId = 0,
   response = "",
   retry_count = 0,
 }) => {
@@ -36,6 +40,8 @@ const updateEmailQueueStatus = async ({
       user_fields: {
         dbName: dbName,
         recordId: id,
+        EntityId: EntityId,
+        ChildId: ChildId,
       },
       m_approval_request: [],
       removeChildren: [],

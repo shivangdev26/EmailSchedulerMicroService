@@ -128,6 +128,8 @@ const startEmailWorker = () => {
             Email_Event_Config_Id,
             ID,
             dbName,
+            EntityId,
+            ChildId,
             retry_count = 0,
           } = job.data;
 
@@ -300,6 +302,8 @@ const startEmailWorker = () => {
             tgr_status: "Y",
             status: "SENT",
             dbName: dbName,
+            EntityId: EntityId,
+            ChildId: ChildId,
             response: "Email sent successfully",
             retry_count: job.attemptsMade,
           });
@@ -309,7 +313,8 @@ const startEmailWorker = () => {
       } catch (err) {
         console.error(` Job ${job.id} failed:`, err.message);
 
-        const { Email_Event_Config_Id, ID, dbName } = job.data;
+        const { Email_Event_Config_Id, ID, dbName, EntityId, ChildId } =
+          job.data;
         if (Email_Event_Config_Id) {
           try {
             const token = await getAuthToken(connection, dbName);
@@ -323,6 +328,8 @@ const startEmailWorker = () => {
               tgr_status: "Y",
               status: isLastAttempt ? "failed" : "pending",
               dbName: dbName,
+              EntityId: EntityId,
+              ChildId: ChildId,
               response: err.message,
               retry_count: job.attemptsMade,
             });

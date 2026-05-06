@@ -8,9 +8,15 @@ const triggerEmailer = async (req, res) => {
   console.log("Request headers:", req.headers);
 
   try {
-    const { dbName, ID, Email_Event_Config_Id } = req.body;
+    const { dbName, ID, Email_Event_Config_Id, EntityId, ChildId } = req.body;
 
-    console.log("Parsed data:", { dbName, ID, Email_Event_Config_Id });
+    console.log("Parsed data:", {
+      dbName,
+      ID,
+      Email_Event_Config_Id,
+      EntityId,
+      ChildId,
+    });
 
     // Validate required fields
     if (!dbName || !ID || !Email_Event_Config_Id) {
@@ -34,6 +40,8 @@ const triggerEmailer = async (req, res) => {
       dbName,
       ID,
       Email_Event_Config_Id,
+      EntityId,
+      ChildId,
       token,
       timestamp: new Date().toISOString(),
     };
@@ -60,8 +68,10 @@ const triggerEmailer = async (req, res) => {
         email_queue_id: Email_Event_Config_Id,
         ack_status: "Y",
         tgr_status: "Y",
-        status: "PENDING",
+        status: "pending",
         dbName: dbName,
+        EntityId: EntityId,
+        ChildId: ChildId,
         response: "Email job received and queued",
         retry_count: 0,
       });
