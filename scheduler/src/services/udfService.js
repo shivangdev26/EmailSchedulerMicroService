@@ -15,9 +15,13 @@ const fetchUdfData = async ({ token, tableName, entityId }) => {
     const query = `select * FROM ${tableName} where id=${entityId}`;
     console.log(` Executing UDF Query: ${query}`);
 
+    const url = process.env.UDF_QUERY_URL;
+    if (!url) {
+      throw new Error("UDF_QUERY_URL environment variable is not defined");
+    }
     const res = await axios({
       method: "POST",
-      url: process.env.UDF_QUERY_URL,
+      url: url,
       headers: {
         ...buildApiHeaders({ bearerToken: token }),
         "Content-Type": "application/json",

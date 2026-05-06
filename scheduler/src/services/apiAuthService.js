@@ -105,16 +105,25 @@ const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
       let token = await connection.get(cacheKey);
 
       if (token) {
-        console.log(` Using cached auth token ${dbName ? `for ${dbName}` : ""}`);
+        console.log(
+          ` Using cached auth token ${dbName ? `for ${dbName}` : ""}`,
+        );
         return token;
       }
     } else {
-      console.log(` Force refreshing auth token ${dbName ? `for ${dbName}` : ""}`);
+      console.log(
+        ` Force refreshing auth token ${dbName ? `for ${dbName}` : ""}`,
+      );
     }
 
     console.log(
       ` Fetching new auth token from Login API ${dbName ? `for ${dbName}` : ""}`,
     );
+
+    const loginUrl = process.env.LOGIN_API_URL;
+    if (!loginUrl) {
+      throw new Error("LOGIN_API_URL environment variable is not defined");
+    }
 
     // Try multiple login approaches
     let response;
@@ -131,12 +140,12 @@ const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
       }
 
       console.log(
-        `Trying login with payload:`,
+        `Trying login at ${loginUrl} with payload:`,
         JSON.stringify(loginPayload, null, 2),
       );
-      response = await axios.post(process.env.LOGIN_API_URL, loginPayload);
+      response = await axios.post(loginUrl, loginPayload);
     } catch (error) {
-      console.log(`Login with dbName failed: ${error.message}`);
+      console.log(`Login with dbName failed at ${loginUrl}: ${error.message}`);
 
       // Try without database name
       try {
@@ -146,12 +155,14 @@ const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
         };
 
         console.log(
-          `Trying login without dbName:`,
+          `Trying login without dbName at ${loginUrl}:`,
           JSON.stringify(loginPayload, null, 2),
         );
-        response = await axios.post(process.env.LOGIN_API_URL, loginPayload);
+        response = await axios.post(loginUrl, loginPayload);
       } catch (error2) {
-        console.log(`Login without dbName also failed: ${error2.message}`);
+        console.log(
+          `Login without dbName also failed at ${loginUrl}: ${error2.message}`,
+        );
         throw error2;
       }
     }

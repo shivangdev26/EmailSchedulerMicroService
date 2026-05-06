@@ -55,6 +55,9 @@ const updateEmailQueueStatus = async ({
     };
 
     const url = process.env.EMAILER_ACK_URL;
+    if (!url) {
+      throw new Error("EMAILER_ACK_URL environment variable is not defined");
+    }
     console.log(` Calling Acknowledgment API: ${url}`);
     const res = await axios({
       method: "POST",

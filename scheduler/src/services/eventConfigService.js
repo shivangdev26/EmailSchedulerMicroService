@@ -3,9 +3,15 @@ const { buildApiHeaders } = require("./apiAuthService");
 
 const fetchEventConfigs = async ({ token } = {}) => {
   try {
+    const url = process.env.EMAILER_EVENT_CONFIG_URL;
+    if (!url) {
+      throw new Error(
+        "EMAILER_EVENT_CONFIG_URL environment variable is not defined",
+      );
+    }
     const res = await axios({
       method: process.env.EMAILER_EVENT_CONFIG_METHOD || "GET",
-      url: process.env.EMAILER_EVENT_CONFIG_URL,
+      url: url,
       headers: {
         ...buildApiHeaders({
           bearerToken: token,
@@ -34,9 +40,15 @@ const fetchEventConfigs = async ({ token } = {}) => {
 
 const fetchEventConfigById = async ({ id, token } = {}) => {
   try {
+    const baseUrl = process.env.EMAILER_EVENT_CONFIG_BY_ID_URL;
+    if (!baseUrl) {
+      throw new Error(
+        "EMAILER_EVENT_CONFIG_BY_ID_URL environment variable is not defined",
+      );
+    }
     const res = await axios({
       method: "GET",
-      url: `${process.env.EMAILER_EVENT_CONFIG_BY_ID_URL}${id}`,
+      url: `${baseUrl}${id}`,
       headers: {
         ...buildApiHeaders({
           bearerToken: token,
