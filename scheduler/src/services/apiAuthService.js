@@ -96,15 +96,20 @@ const decodeJwtPayload = (token = "") => {
   }
 };
 
-const getAuthToken = async (connection, dbName = "") => {
+const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
   const cacheKey = dbName ? `api_auth_token_${dbName}` : "api_auth_token";
+
   try {
     // Check Redis for cached token
-    let token = await connection.get(cacheKey);
+    if (!forceRefresh) {
+      let token = await connection.get(cacheKey);
 
-    if (token) {
-      console.log(` Using cached auth token ${dbName ? `for ${dbName}` : ""}`);
-      return token;
+      if (token) {
+        console.log(` Using cached auth token ${dbName ? `for ${dbName}` : ""}`);
+        return token;
+      }
+    } else {
+      console.log(` Force refreshing auth token ${dbName ? `for ${dbName}` : ""}`);
     }
 
     console.log(

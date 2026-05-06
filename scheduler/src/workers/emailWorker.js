@@ -129,7 +129,7 @@ const startEmailWorker = () => {
             retry_count = 0,
           } = job.data;
 
-          const token = await getAuthToken(connection, dbName);
+          let token = await getAuthToken(connection, dbName);
 
           const configUrl = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerEventConfiguration/${Email_Event_Config_Id}`;
 
@@ -137,66 +137,92 @@ const startEmailWorker = () => {
           console.log(`Using token: ${token}`);
 
           let configResponse;
+          let configData;
 
-          try {
-            configResponse = await fetch(configUrl, {
-              method: "GET",
-              headers: {
-                Authorization: token,
-                "Content-Type": "application/json",
-              },
-            });
-          } catch (error) {
-            console.log(`First auth attempt failed: ${error.message}`);
+          const fetchConfig = async (authToken) => {
+            let response;
+            try {
+              response = await fetch(configUrl, {
+                method: "GET",
+                headers: {
+                  Authorization: authToken,
+                  "Content-Type": "application/json",
+                },
+              });
+            } catch (error) {
+              console.log(`Auth attempt failed: ${error.message}`);
+              return null;
+            }
+
+            // If fails, try without Bearer prefix or with it depending on what was passed
+            if (!response || !response.ok) {
+              const cleanToken = authToken.replace(/^Bearer\s+/i, "");
+              const bearerToken = authToken.startsWith("Bearer ")
+                ? authToken
+                : `Bearer ${authToken}`;
+
+              const altToken = authToken.startsWith("Bearer ")
+                ? cleanToken
+                : bearerToken;
+
+              console.log(`Trying with alternative token format...`);
+              response = await fetch(configUrl, {
+                method: "GET",
+                headers: {
+                  Authorization: altToken,
+                  "Content-Type": "application/json",
+                },
+              });
+            }
+            return response;
+          };
+
+          configResponse = await fetchConfig(token);
+
+          if (configResponse && configResponse.ok) {
+            configData = await configResponse.json();
+
+            // Handle the case where API returns 200 but body says 401
+            if (
+              configData.status === 401 ||
+              (configData.message &&
+                configData.message.toLowerCase().includes("unauthorized"))
+            ) {
+              console.log(
+                "Detected unauthorized message in 200 response. Refreshing token...",
+              );
+              token = await getAuthToken(connection, dbName, true);
+              configResponse = await fetchConfig(token);
+              if (configResponse && configResponse.ok) {
+                configData = await configResponse.json();
+              }
+            }
           }
 
-          // If first attempt fails, try without Bearer prefix
+          console.log(`Config API response status: ${configResponse?.status}`);
+
           if (!configResponse || !configResponse.ok) {
-            const cleanToken = token.replace(/^Bearer\s+/i, "");
-            console.log(`Trying with clean token: ${cleanToken}`);
-            configResponse = await fetch(configUrl, {
-              method: "GET",
-              headers: {
-                Authorization: cleanToken,
-                "Content-Type": "application/json",
-              },
-            });
-          }
-
-          // If still fails, try with Bearer prefix explicitly
-          if (!configResponse || !configResponse.ok) {
-            const bearerToken = token.startsWith("Bearer ")
-              ? token
-              : `Bearer ${token}`;
-            console.log(`Trying with Bearer prefix: ${bearerToken}`);
-            configResponse = await fetch(configUrl, {
-              method: "GET",
-              headers: {
-                Authorization: bearerToken,
-                "Content-Type": "application/json",
-              },
-            });
-          }
-
-          console.log(`Config API response status: ${configResponse.status}`);
-
-          if (!configResponse.ok) {
-            const errorText = await configResponse.text();
+            const errorText = configResponse
+              ? await configResponse.text()
+              : "No response";
             console.error(`Config API error response: ${errorText}`);
             throw new Error(
-              `Failed to fetch event configuration: ${configResponse.status} - ${errorText}`,
+              `Failed to fetch event configuration: ${configResponse?.status} - ${errorText}`,
             );
           }
 
-          const configData = await configResponse.json();
           console.log(
             `Config API response data:`,
             JSON.stringify(configData, null, 2),
           );
 
-          if (!configData.data || !configData.data.length) {
+          if (
+            !configData.data ||
+            !configData.data.length ||
+            configData.status === 401
+          ) {
             throw new Error(
-              `No configuration found for evnt_id: ${Email_Event_Config_Id}`,
+              `No configuration found or unauthorized for evnt_id: ${Email_Event_Config_Id}. Message: ${configData.message}`,
             );
           }
 
@@ -281,10 +307,10 @@ const startEmailWorker = () => {
       } catch (err) {
         console.error(` Job ${job.id} failed:`, err.message);
 
-        const { Email_Event_Config_Id, ID } = job.data;
+        const { Email_Event_Config_Id, ID, dbName } = job.data;
         if (Email_Event_Config_Id) {
           try {
-            const token = await getAuthToken(connection);
+            const token = await getAuthToken(connection, dbName);
             const isLastAttempt = job.attemptsMade >= 3;
 
             await updateEmailQueueStatus({
