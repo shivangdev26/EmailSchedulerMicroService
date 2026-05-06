@@ -4,6 +4,7 @@ const { sendEmail } = require("../services/emailSenderService");
 const { getAuthToken } = require("../services/apiAuthService");
 const { fetchSmtpConfig } = require("../services/emailerSmtpAccountService");
 const { updateEmailQueueStatus } = require("../services/ackService");
+const { fetchUdfData, replacePlaceholders } = require("../services/udfService");
 
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
@@ -169,7 +170,7 @@ const startEmailWorker = () => {
                 ? cleanToken
                 : bearerToken;
 
-              console.log(`Trying with alternative token format...`);
+              console.log(`Trying with alternative token format: ${altToken}`);
               response = await fetch(configUrl, {
                 method: "GET",
                 headers: {
@@ -231,6 +232,49 @@ const startEmailWorker = () => {
           }
 
           const config = configData.data[0];
+
+          // 2.5 Fetch Dynamic Data for Placeholders
+          let dynamicData = null;
+          if (EntityId && config.event_name) {
+            dynamicData = await fetchUdfData({
+              token,
+              tableName: config.event_name,
+              entityId: EntityId,
+            });
+
+            if (dynamicData) {
+              console.log(
+                ` Dynamic data fetched for placeholders:`,
+                JSON.stringify(dynamicData, null, 2),
+              );
+              // Replace placeholders in subject and body
+              const originalSubject = config.event_name;
+              const originalTitle = config.title;
+              const originalBody = config.msg_body;
+
+              config.event_name = replacePlaceholders(
+                config.event_name,
+                dynamicData,
+              );
+              config.title = replacePlaceholders(config.title, dynamicData);
+              config.msg_body = replacePlaceholders(
+                config.msg_body,
+                dynamicData,
+              );
+
+              console.log(` Placeholder Replacement Summary:`);
+              if (originalSubject !== config.event_name)
+                console.log(`   - Subject updated`);
+              if (originalTitle !== config.title)
+                console.log(`   - Title updated`);
+              if (originalBody !== config.msg_body)
+                console.log(`   - Body updated`);
+            } else {
+              console.warn(
+                ` No dynamic data found for placeholders using EntityId: ${EntityId}`,
+              );
+            }
+          }
 
           // Log complete event configuration details
           console.log(`\n=== EMAIL EVENT CONFIGURATION DETAILS ===`);
