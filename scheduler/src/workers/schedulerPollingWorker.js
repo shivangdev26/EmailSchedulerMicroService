@@ -327,8 +327,8 @@ const DB_API =
 const LOGIN_API =
   "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/auth/Login";
 
-const USERNAME = "admin";
-const PASSWORD = "Nice@4321";
+const USERNAME = process.env.LOGIN_USERNAME || "admin";
+const PASSWORD = process.env.LOGIN_PASSWORD || "Nice@4321";
 
 const POLL_INTERVAL = 15000;
 const BATCH_SIZE = 5;

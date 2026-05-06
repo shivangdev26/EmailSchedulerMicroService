@@ -1,10 +1,10 @@
 const express = require("express");
 const cors = require("cors");
-const routes = require("../src/routes/index");
+const routes = require("./routes/index");
 
-const responseHandler = require("../src/utils/responseMiddleware.js");
+const responseHandler = require("./utils/responseMiddleware.js");
 const cookieParser = require("cookie-parser");
-const errorHandler = require("../src/utils/errorMiddleware.js");
+const errorHandler = require("./utils/errorMiddleware.js");
 
 const app = express();
 
@@ -33,7 +33,7 @@ app.use(cookieParser());
 
 app.use(responseHandler);
 
-app.use("/", routes);
+app.use("/api", routes);
 
 app.use(errorHandler);
 
