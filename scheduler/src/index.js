@@ -33,7 +33,7 @@ app.use(cookieParser());
 
 app.use(responseHandler);
 
-app.use("/api", routes);
+app.use("/", routes);
 
 app.use(errorHandler);
 
