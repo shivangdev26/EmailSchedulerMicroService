@@ -550,7 +550,6 @@ const startSchedulerPolling = () => {
                 const delay = parsed.date.diff(dayjs.utc());
 
                 if (delay < -1800000) {
-                  // 30 minutes instead of 1 minute
                   continue;
                 }
 
@@ -668,7 +667,8 @@ const startSchedulerPolling = () => {
           ),
         );
 
-        if (!stillExists) {
+        const hasValidData = allTenants.some(({ res }) => res?.raw?.tblData);
+        if (!stillExists && hasValidData) {
           await emailQueue.removeRepeatableByKey(job.key);
           console.log(" Removed stale job:", job.key);
         }

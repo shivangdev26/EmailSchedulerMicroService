@@ -69,7 +69,6 @@ const startEmailWorker = () => {
               return;
             }
 
-            // Check Time Window (startH:startM to endH:endM)
             const currentH = now.hour();
             const currentM = now.minute();
             const currentTimeInMins = currentH * 60 + currentM;
@@ -88,7 +87,6 @@ const startEmailWorker = () => {
             }
           }
 
-          // 2. Build and Send
           const emailPayload = {
             smtp: {
               server: smtp.server || smtp.server_name,
@@ -159,7 +157,6 @@ const startEmailWorker = () => {
               return null;
             }
 
-            // If fails, try without Bearer prefix or with it depending on what was passed
             if (!response || !response.ok) {
               const cleanToken = authToken.replace(/^Bearer\s+/i, "");
               const bearerToken = authToken.startsWith("Bearer ")
@@ -362,15 +359,14 @@ const startEmailWorker = () => {
         if (Email_Event_Config_Id) {
           try {
             const token = await getAuthToken(connection, dbName);
-            const isLastAttempt = job.attemptsMade >= 3;
+            const isLastAttempt = job.attemptsMade >= 2;
 
             await updateEmailQueueStatus({
               token,
               id: ID,
               email_queue_id: Email_Event_Config_Id,
               ack_status: "Y",
-              tgr_status: "Y",
-              status: isLastAttempt ? "failed" : "pending",
+              status: isLastAttempt ? "FAILED" : "PENDING",
               dbName: dbName,
               EntityId: EntityId,
               ChildId: ChildId,
