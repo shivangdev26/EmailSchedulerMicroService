@@ -2,20 +2,19 @@ const axios = require("axios");
 const { buildApiHeaders } = require("./apiAuthService");
 
 /**
- * Updates the email queue status in the remote system.
  *
  * @param {Object} params
- * @param {string} params.token - Bearer token for authentication
- * @param {number} params.id - The record ID (from trigger payload)
- * @param {number} params.email_queue_id - The event ID to acknowledge
- * @param {string} params.ack_status - 'Y' or 'N'
- * @param {string} [params.tgr_status='s'] - 'Y' or 's'
- * @param {string} params.status - 'pending', 'Y' (success), or 'failed'
- * @param {string} [params.dbName] - Database name to include in user_fields
- * @param {number} [params.EntityId] - Entity ID to include in user_fields
- * @param {number} [params.ChildId] - Child ID to include in user_fields
- * @param {string} [params.response] - Optional response message or error reason
- * @param {number} [params.retry_count] - Current retry count
+ * @param {string} params.token
+ * @param {number} params.id
+ * @param {number} params.email_queu
+ * @param {string} params.ack_status
+ * @param {string} [params.tgr_status='s']
+ * @param {string} params.status
+ * @param {string} [params.dbName]
+ * @param {number} [params.EntityId]
+ * @param {number} [params.ChildId]
+ * @param {string} [params.response]
+ * @param {number} [params.retry_count]
  */
 const updateEmailQueueStatus = async ({
   token,

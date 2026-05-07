@@ -100,7 +100,6 @@ const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
   const cacheKey = dbName ? `api_auth_token_${dbName}` : "api_auth_token";
 
   try {
-    // Check Redis for cached token
     if (!forceRefresh) {
       let token = await connection.get(cacheKey);
 
@@ -125,10 +124,8 @@ const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
       throw new Error("LOGIN_API_URL environment variable is not defined");
     }
 
-    // Try multiple login approaches
     let response;
 
-    // First try with database name
     try {
       const loginPayload = {
         username: process.env.LOGIN_USERNAME,
@@ -147,7 +144,6 @@ const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
     } catch (error) {
       console.log(`Login with dbName failed at ${loginUrl}: ${error.message}`);
 
-      // Try without database name
       try {
         const loginPayload = {
           username: process.env.LOGIN_USERNAME,
@@ -173,7 +169,6 @@ const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
       response.data?.data?.token;
 
     if (token) {
-      // Store in Redis for 24 hours (86400 seconds)
       await connection.set(cacheKey, token, "EX", 86400);
       return token;
     }

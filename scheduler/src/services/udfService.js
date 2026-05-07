@@ -1,15 +1,14 @@
 const axios = require("axios");
 const { buildApiHeaders } = require("./apiAuthService");
+const dayjs = require("dayjs");
 
 /**
- * Fetches dynamic data using the UDF_query API to replace placeholders.
  *
  * @param {Object} params
- * @param {string} params.token - Bearer token
- * @param {string} params.tableName - The table name (event_name from config)
- * @param {number} params.entityId - The EntityId from trigger
- * @returns {Promise<Object|null>} The first row of data or null
- */
+ * @param {string} params.token
+ * @param {string} params.tableName
+ * @param {number} params.entityId
+ * @returns {Promise<Object|null>}  */
 const fetchUdfData = async ({ token, tableName, entityId }) => {
   try {
     const query = `select * FROM ${tableName} where id=${entityId}`;
@@ -45,7 +44,6 @@ const fetchUdfData = async ({ token, tableName, entityId }) => {
       JSON.stringify(responseData, null, 2),
     );
 
-    // The API usually returns data in res.data.data or res.data.tblData
     const data =
       responseData?.tblData || responseData?.data || responseData?.result;
 
@@ -69,18 +67,62 @@ const fetchUdfData = async ({ token, tableName, entityId }) => {
 };
 
 /**
- * Replaces placeholders in a string using provided data.
  *
- * @param {string} text - The text containing placeholders like {{field_name}}
- * @param {Object} data - The data object containing values
- * @returns {string} The text with placeholders replaced
+ * @param {string} text
+ * @param {Object} data
+ * @returns {string}
  */
 const replacePlaceholders = (text, data) => {
   if (!text || !data) return text || "";
 
-  return text.replace(/\{\{(.*?)\}\}/g, (match, key) => {
-    const trimmedKey = key.trim();
-    return data[trimmedKey] !== undefined ? String(data[trimmedKey]) : match;
+  return text.replace(/\{\{(.*?)\}\}/g, (match, content) => {
+    const parts = content.split("|").map((p) => p.trim());
+    const key = parts[0];
+    let value = data[key];
+
+    if (value === undefined) return match;
+
+    if (parts.length > 1) {
+      const filterPart = parts[1];
+      if (filterPart.startsWith("date:")) {
+        const formatMatch = filterPart.match(/date:\s*"(.*?)"/);
+        if (formatMatch) {
+          let format = formatMatch[1];
+
+          format = format
+            .replace(/%d|d/g, "DD")
+            .replace(/%m|m/g, "MM")
+            .replace(/%Y|Y/g, "YYYY")
+            .replace(/%y|y/g, "YY");
+
+          const date = dayjs(value);
+          if (date.isValid()) {
+            return date.format(format);
+          }
+        }
+      }
+
+      if (filterPart.startsWith("floatformat:")) {
+        const precisionMatch = filterPart.match(/floatformat:\s*(\d+)/);
+        if (precisionMatch) {
+          const N = parseInt(precisionMatch[1]);
+          const num = parseFloat(value);
+          if (!isNaN(num)) {
+            const fixed = num.toFixed(N);
+            const parts = fixed.split(".");
+            let integerPart = parts[0];
+            const decimalPart = parts.length > 1 ? "." + parts[1] : "";
+
+            const regex = new RegExp(`(\\d)(?=(\\d{${N}})+(?!\\d))`, "g");
+            integerPart = integerPart.replace(regex, "$1,");
+
+            return integerPart + decimalPart;
+          }
+        }
+      }
+    }
+
+    return String(value);
   });
 };
 

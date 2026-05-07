@@ -18,7 +18,6 @@ const triggerEmailer = async (req, res) => {
       ChildId,
     });
 
-    // Validate required fields
     if (!dbName || !ID || !Email_Event_Config_Id) {
       return res.status(400).json({
         success: false,
@@ -26,7 +25,6 @@ const triggerEmailer = async (req, res) => {
       });
     }
 
-    // Get auth token
     const token = await getAuthToken(connection, dbName);
     if (!token) {
       return res.status(500).json({
@@ -35,7 +33,6 @@ const triggerEmailer = async (req, res) => {
       });
     }
 
-    // Store job in Bull MQ
     const jobData = {
       dbName,
       ID,
@@ -60,15 +57,13 @@ const triggerEmailer = async (req, res) => {
       `Emailer job queued with ID: ${job.id} for evnt_id: ${Email_Event_Config_Id}`,
     );
 
-    // First acknowledgment: ack_status to Y, status to pending
     try {
       await updateEmailQueueStatus({
         token,
         id: ID,
         email_queue_id: Email_Event_Config_Id,
         ack_status: "Y",
-        tgr_status: "Y",
-        status: "pending",
+        status: "PENDING",
         dbName: dbName,
         EntityId: EntityId,
         ChildId: ChildId,

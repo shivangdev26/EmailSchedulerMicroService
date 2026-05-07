@@ -36,15 +36,12 @@ const triggerEvent = async (req, res) => {
       },
     );
 
-    // 3. Call Acknowledgment API (Initial)
-    // User: "update ack_status to Y , status pending"
     await updateEmailQueueStatus({
       token,
       id: ID,
       email_queue_id: Email_Event_Config_Id,
       ack_status: "Y",
-      tgr_status: "Y", // Ensure both are Y on trigger
-      status: "pending",
+      status: "PENDING",
       dbName: dbName,
     });
 
