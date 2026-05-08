@@ -247,21 +247,18 @@ const startEmailWorker = () => {
 
           const config = configData.data[0];
 
-          // Calculate link_expiry date based on confirmation_req (declare here for error handling scope)
           let linkExpiryDate;
           const confirmationReq = config.confirmation_req;
-          const maxExpiryHours = config.max_expiry_hours || 48; // Default to 48 hours if not specified
+          const maxExpiryHours = config.max_expiry_hours || 48;
 
           if (confirmationReq === "Y") {
-            // If confirmation is required, set expiry to max_expiry_hours from now (default 48 hours)
             const expiryTime = new Date();
             expiryTime.setHours(expiryTime.getHours() + maxExpiryHours);
-            linkExpiryDate = expiryTime.toISOString().split("T")[0]; // Format as YYYY-MM-DD
+            linkExpiryDate = expiryTime.toISOString().split("T")[0];
             console.log(
               ` Confirmation required - Link expiry set to: ${linkExpiryDate} (${maxExpiryHours} hours from now)`,
             );
           } else {
-            // If confirmation is not required or null, set to 9999-12-31
             linkExpiryDate = "9999-12-31";
             console.log(
               ` No confirmation required - Link expiry set to: ${linkExpiryDate}`,
@@ -346,6 +343,61 @@ const startEmailWorker = () => {
             `SMTP Email: ${smtp.email_address || smtp.user_name || "N/A"}`,
           );
           console.log(`====================================\n`);
+
+          let domainUrlData = null;
+          try {
+            const domainUrlApi = `https://logsuitedomainverify.dcctz.com/api/get_domain_url?DBName=${dbName}`;
+            console.log(`Fetching domain URL from: ${domainUrlApi}`);
+
+            const domainResponse = await fetch(domainUrlApi, {
+              method: "GET",
+              headers: {
+                "Content-Type": "application/json",
+              },
+            });
+
+            if (domainResponse.ok) {
+              domainUrlData = await domainResponse.json();
+              console.log(
+                `Domain URL API response:`,
+                JSON.stringify(domainUrlData, null, 2),
+              );
+            } else {
+              console.warn(
+                `Domain URL API failed with status: ${domainResponse.status}`,
+              );
+            }
+          } catch (domainError) {
+            console.warn(`Error fetching domain URL: ${domainError.message}`);
+          }
+
+          if (domainUrlData && config.msg_body) {
+            const originalBody = config.msg_body;
+
+            if (domainUrlData.url) {
+              config.msg_body = config.msg_body.replace(
+                /{{confirm_link}}/g,
+                domainUrlData.url,
+              );
+              console.log(
+                ` Replaced {{confirm_link}} with: ${domainUrlData.url}`,
+              );
+            }
+
+            if (domainUrlData.url) {
+              config.msg_body = config.msg_body.replace(
+                /{{not_confirm_link}}/g,
+                domainUrlData.url,
+              );
+              console.log(
+                ` Replaced {{not_confirm_link}} with: ${domainUrlData.url}`,
+              );
+            }
+
+            if (originalBody !== config.msg_body) {
+              console.log(` Email body updated with confirmation links`);
+            }
+          }
 
           const emailPayload = buildEmailPayloadFromConfig(config, smtp);
           if (!emailPayload.to.length) {

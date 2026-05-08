@@ -15,6 +15,7 @@ const { buildApiHeaders } = require("./apiAuthService");
  * @param {number} [params.ChildId]
  * @param {string} [params.response]
  * @param {number} [params.retry_count]
+ * @param {string} [params.link_expiry]
  */
 const updateEmailQueueStatus = async ({
   token,
@@ -28,6 +29,7 @@ const updateEmailQueueStatus = async ({
   ChildId = 0,
   response = "",
   retry_count = 0,
+  link_expiry,
 }) => {
   try {
     const payload = {
@@ -44,13 +46,14 @@ const updateEmailQueueStatus = async ({
       },
       m_approval_request: [],
       removeChildren: [],
-      id: 0,
       email_queue_id: email_queue_id,
       tgr_status: tgr_status,
       ack_status: ack_status,
       status: status,
       response: response,
       retry_count: retry_count,
+      link_expiry: link_expiry,
+      cron_run: "N",
     };
 
     const url = process.env.EMAILER_ACK_URL;
