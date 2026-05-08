@@ -129,6 +129,7 @@ const startEmailWorker = () => {
             dbName,
             EntityId,
             ChildId,
+            CombinedIds,
             retry_count = 0,
           } = job.data;
 
@@ -246,6 +247,27 @@ const startEmailWorker = () => {
 
           const config = configData.data[0];
 
+          // Calculate link_expiry date based on confirmation_req (declare here for error handling scope)
+          let linkExpiryDate;
+          const confirmationReq = config.confirmation_req;
+          const maxExpiryHours = config.max_expiry_hours || 48; // Default to 48 hours if not specified
+
+          if (confirmationReq === "Y") {
+            // If confirmation is required, set expiry to max_expiry_hours from now (default 48 hours)
+            const expiryTime = new Date();
+            expiryTime.setHours(expiryTime.getHours() + maxExpiryHours);
+            linkExpiryDate = expiryTime.toISOString().split("T")[0]; // Format as YYYY-MM-DD
+            console.log(
+              ` Confirmation required - Link expiry set to: ${linkExpiryDate} (${maxExpiryHours} hours from now)`,
+            );
+          } else {
+            // If confirmation is not required or null, set to 9999-12-31
+            linkExpiryDate = "9999-12-31";
+            console.log(
+              ` No confirmation required - Link expiry set to: ${linkExpiryDate}`,
+            );
+          }
+
           let dynamicData = null;
           if (EntityId && config.event_name) {
             dynamicData = await fetchUdfData({
@@ -302,6 +324,12 @@ const startEmailWorker = () => {
           console.log(`Action Update: ${config.action_update}`);
           console.log(`Action Delete: ${config.action_delete}`);
           console.log(`Action Cancel: ${config.action_cancel}`);
+          console.log(
+            `Confirmation Required: ${config.confirmation_req || "N/null"}`,
+          );
+          console.log(
+            `Max Expiry Hours: ${config.max_expiry_hours || "Not specified"}`,
+          );
           console.log(`========================================\n`);
 
           const smtp = await fetchSmtpConfig({ token });
@@ -355,6 +383,8 @@ const startEmailWorker = () => {
             dbName: dbName,
             EntityId: EntityId,
             ChildId: ChildId,
+            CombinedIds: CombinedIds,
+            link_expiry: linkExpiryDate,
             response: "Email sent successfully",
             retry_count: job.attemptsMade,
           });
@@ -364,8 +394,14 @@ const startEmailWorker = () => {
       } catch (err) {
         console.error(` Job ${job.id} failed:`, err.message);
 
-        const { Email_Event_Config_Id, ID, dbName, EntityId, ChildId } =
-          job.data;
+        const {
+          Email_Event_Config_Id,
+          ID,
+          dbName,
+          EntityId,
+          ChildId,
+          CombinedIds,
+        } = job.data;
         if (Email_Event_Config_Id) {
           try {
             const token = await getAuthToken(connection, dbName);
@@ -380,6 +416,8 @@ const startEmailWorker = () => {
               dbName: dbName,
               EntityId: EntityId,
               ChildId: ChildId,
+              CombinedIds: CombinedIds,
+              link_expiry: linkExpiryDate,
               response: err.message,
               retry_count: job.attemptsMade,
             });
