@@ -253,10 +253,16 @@ const startEmailWorker = () => {
 
           if (confirmationReq === "Y") {
             const expiryTime = new Date();
-            expiryTime.setHours(expiryTime.getHours() + maxExpiryHours);
-            linkExpiryDate = expiryTime.toISOString().split("T")[0];
+            const hoursToAdd = maxExpiryHours === 0 ? 48 : maxExpiryHours;
+            expiryTime.setHours(expiryTime.getHours() + hoursToAdd);
+            expiryTime.setMinutes(expiryTime.getMinutes());
+            expiryTime.setSeconds(expiryTime.getSeconds());
+            linkExpiryDate = expiryTime
+              .toISOString()
+              .slice(0, 19)
+              .replace("T", " ");
             console.log(
-              ` Confirmation required - Link expiry set to: ${linkExpiryDate} (${maxExpiryHours} hours from now)`,
+              ` Confirmation required - Link expiry set to: ${linkExpiryDate} (${hoursToAdd} hours from now)`,
             );
           } else {
             linkExpiryDate = "9999-12-31";
