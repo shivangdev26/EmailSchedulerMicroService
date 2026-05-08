@@ -25,11 +25,26 @@ const triggerEmailer = async (req, res) => {
       });
     }
 
-    const token = await getAuthToken(connection, dbName);
-    if (!token) {
+    let token;
+    try {
+      token = await getAuthToken(connection, dbName);
+      if (!token) {
+        return res.status(500).json({
+          success: false,
+          message:
+            "Failed to obtain authentication token - database may not exist",
+        });
+      }
+      console.log(` Authentication successful for database: ${dbName}`);
+    } catch (authError) {
+      console.error(
+        ` Authentication failed for database: ${dbName}`,
+        authError.message,
+      );
       return res.status(500).json({
         success: false,
-        message: "Failed to obtain authentication token",
+        message: `Authentication failed - database '${dbName}' may not exist or credentials are invalid`,
+        error: authError.message,
       });
     }
 

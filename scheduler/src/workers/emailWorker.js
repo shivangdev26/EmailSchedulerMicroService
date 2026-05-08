@@ -132,7 +132,24 @@ const startEmailWorker = () => {
             retry_count = 0,
           } = job.data;
 
-          let token = await getAuthToken(connection, dbName);
+          let token;
+          try {
+            token = await getAuthToken(connection, dbName);
+            if (!token) {
+              throw new Error(`Authentication failed for database: ${dbName}`);
+            }
+            console.log(
+              `Email worker authentication successful for database: ${dbName}`,
+            );
+          } catch (authError) {
+            console.error(
+              ` Email worker authentication failed for database: ${dbName}`,
+              authError.message,
+            );
+            throw new Error(
+              `Cannot process email - authentication failed: ${authError.message}`,
+            );
+          }
 
           const configUrl = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerEventConfiguration/${Email_Event_Config_Id}`;
 
@@ -184,7 +201,6 @@ const startEmailWorker = () => {
           if (configResponse && configResponse.ok) {
             configData = await configResponse.json();
 
-            // Handle the case where API returns 200 but body says 401
             if (
               configData.status === 401 ||
               (configData.message &&
@@ -230,7 +246,6 @@ const startEmailWorker = () => {
 
           const config = configData.data[0];
 
-          // 2.5 Fetch Dynamic Data for Placeholders
           let dynamicData = null;
           if (EntityId && config.event_name) {
             dynamicData = await fetchUdfData({
@@ -244,7 +259,6 @@ const startEmailWorker = () => {
                 ` Dynamic data fetched for placeholders:`,
                 JSON.stringify(dynamicData, null, 2),
               );
-              // Replace placeholders in subject and body
               const originalSubject = config.event_name;
               const originalTitle = config.title;
               const originalBody = config.msg_body;
@@ -273,7 +287,6 @@ const startEmailWorker = () => {
             }
           }
 
-          // Log complete event configuration details
           console.log(`\n=== EMAIL EVENT CONFIGURATION DETAILS ===`);
           console.log(`Event ID: ${Email_Event_Config_Id}`);
           console.log(`Event Name: ${config.event_name}`);
@@ -291,8 +304,6 @@ const startEmailWorker = () => {
           console.log(`Action Cancel: ${config.action_cancel}`);
           console.log(`========================================\n`);
 
-          // 3. Fetch SMTP config
-          // You might want to use config.email_account to fetch specific SMTP config
           const smtp = await fetchSmtpConfig({ token });
           if (!smtp) {
             throw new Error("SMTP configuration unavailable");
@@ -308,7 +319,6 @@ const startEmailWorker = () => {
           );
           console.log(`====================================\n`);
 
-          // 4. Send email
           const emailPayload = buildEmailPayloadFromConfig(config, smtp);
           if (!emailPayload.to.length) {
             console.warn(
