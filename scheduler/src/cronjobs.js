@@ -18,6 +18,20 @@ const initializeCronJobs = async () => {
       },
     );
 
+    await emailQueue.upsertJobScheduler(
+      "check-email-queue-job",
+      {
+        pattern: "*/5 * * * *",
+        tz: process.env.EMAIL_SCHEDULER_TIMEZONE || "Asia/Kolkata",
+      },
+      {
+        name: "check-email-queue-status",
+        data: {
+          source: "bullmq-cron",
+        },
+      },
+    );
+
     console.log("BullMQ scheduler job created");
   } catch (error) {
     console.log("Failed to initialize BullMQ cron job:", error);

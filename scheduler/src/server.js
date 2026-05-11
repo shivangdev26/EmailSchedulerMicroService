@@ -21,6 +21,7 @@ const app = require("./index");
 
 const { startEmailWorker } = require("./workers/emailWorker");
 const { startSchedulerPolling } = require("./workers/schedulerPollingWorker");
+const { initializeCronJobs } = require("./cronjobs");
 
 console.log("App loaded");
 console.log("BullMQ modules loaded");
@@ -30,6 +31,8 @@ const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, "0.0.0.0", async () => {
   startEmailWorker();
   // startSchedulerPolling();
+  
+  await initializeCronJobs();
 
   console.log(`Server is running on http://localhost:${PORT}`);
 });

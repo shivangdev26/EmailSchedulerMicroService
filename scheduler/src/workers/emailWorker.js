@@ -5,6 +5,9 @@ const { getAuthToken } = require("../services/apiAuthService");
 const { fetchSmtpConfig } = require("../services/emailerSmtpAccountService");
 const { updateEmailQueueStatus } = require("../services/ackService");
 const { fetchUdfData, replacePlaceholders } = require("../services/udfService");
+const {
+  processEmailQueueStatus,
+} = require("../services/emailQueueCronService");
 
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
@@ -446,6 +449,10 @@ const startEmailWorker = () => {
             response: "Email sent successfully",
             retry_count: job.attemptsMade,
           });
+        } else if (job.name === "check-email-queue-status") {
+          console.log(`Processing check-email-queue-status job ${job.id}`);
+          await processEmailQueueStatus();
+          console.log(`check-email-queue-status job ${job.id} completed`);
         } else {
           console.log(` Unhandled job type: ${job.name}`);
         }
