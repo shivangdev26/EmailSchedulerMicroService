@@ -392,6 +392,7 @@ const fetchAllDatabases = async () => {
 
 //parser
 const parseScheduleDetails = (details, tz = "UTC") => {
+  console.log(`parseScheduleDetails called with:`, details);
   if (!details) return null;
 
   const one = details.match(
@@ -427,9 +428,13 @@ const parseScheduleDetails = (details, tz = "UTC") => {
     };
   }
 
-  const advanced = details.match(
-    /every\s*(\d+)\s*day\(s\)\s*every\s*(\d+)\s*minute\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*starting on\s*(\d{2})\/(\d{2})\/(\d{4})/i,
-  );
+  const advanced =
+    details.match(
+      /every\s*(\d+)\s*day\(s\)\s*every\s*(\d+)\s*minute\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*starting on\s*(\d{2})\/(\d{2})\/(\d{4})/i,
+    ) ||
+    details.match(
+      /every\s*(\d+)\s*day\(s\)every\s*(\d+)\s*minute\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*starting on\s*(\d{2})\/(\d{2})\/(\d{4})/i,
+    );
 
   if (advanced) {
     let everyDays = Number(advanced[1]);
@@ -453,7 +458,7 @@ const parseScheduleDetails = (details, tz = "UTC") => {
       .tz(`${advanced[11]}-${advanced[10]}-${advanced[9]} 00:00`, tz)
       .utc();
 
-    return {
+    const result = {
       type: "ADVANCED",
       everyDays,
       everyMinutes,
@@ -464,7 +469,10 @@ const parseScheduleDetails = (details, tz = "UTC") => {
       startDate,
       tz,
     };
+    console.log(`parseScheduleDetails result:`, result);
+    return result;
   }
+  console.log(`parseScheduleDetails result: null`);
   return null;
 };
 
@@ -534,11 +542,28 @@ const startSchedulerPolling = () => {
         for (const { db, res } of validTenants) {
           const actions = res.raw?.tblData || [];
 
+          console.log(
+            `[DB: ${db}] Fetched ${actions.length} actions:`,
+            actions.map((a) => ({
+              id: a.id,
+              is_active: a.is_active,
+              schedule_details: a.schedule_details,
+            })),
+          );
+
           for (const action of actions) {
+            console.log(
+              `[Action ${action.id}] Checking: is_active=${action.is_active}, to=${action.to}`,
+            );
             if (action.is_active !== "Y") continue;
 
             const to = normalizeRecipients(action.to);
-            if (!to.length) continue;
+            if (!to.length) {
+              console.log(
+                `[Action ${action.id}] Skipping: no recipients (to=${action.to})`,
+              );
+              continue;
+            }
 
             const payload = { action, smtp, db };
             const tz = action.timezone || "UTC";

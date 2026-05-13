@@ -1,13 +1,14 @@
 const { Worker } = require("bullmq");
 const { connection, emailQueueName } = require("../bullmq");
 const { sendEmail } = require("../services/emailSenderService");
-const { getAuthToken } = require("../services/apiAuthService");
+const { getAuthToken, buildApiHeaders } = require("../services/apiAuthService");
 const { fetchSmtpConfig } = require("../services/emailerSmtpAccountService");
 const { updateEmailQueueStatus } = require("../services/ackService");
 const { fetchUdfData, replacePlaceholders } = require("../services/udfService");
-const {
-  processEmailQueueStatus,
-} = require("../services/emailQueueCronService");
+// const {
+//   processEmailQueueStatus,
+// } = require("../services/emailQueueCronService");
+const axios = require("axios");
 
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
@@ -29,10 +30,10 @@ const normalizeRecipients = (value) => {
   return [];
 };
 
-const buildEmailPayloadFromConfig = (config, smtp) => {
+const buildEmailPayloadFromConfig = (config, smtp, attachments = []) => {
   if (!smtp) throw new Error("Missing SMTP");
 
-  return {
+  const payload = {
     smtp: {
       server: smtp.server || smtp.server_name,
       email: smtp.email || smtp.user_name,
@@ -47,6 +48,12 @@ const buildEmailPayloadFromConfig = (config, smtp) => {
     text: config.msg_body || "No body",
     html: config.msg_body ? `<div>${config.msg_body}</div>` : "No content",
   };
+
+  if (attachments && attachments.length > 0) {
+    payload.attachments = attachments;
+  }
+
+  return payload;
 };
 
 const startEmailWorker = () => {
@@ -68,6 +75,21 @@ const startEmailWorker = () => {
             if (now.isBefore(startDate, "day")) {
               console.log(
                 ` Skipping: Job ${job.id} is before start date ${advanced.startDate}`,
+              );
+              return;
+            }
+
+            const nowDateOnly = now.startOf("day");
+            const startDateOnly = startDate.startOf("day");
+            const daysSinceStart = nowDateOnly.diff(startDateOnly, "day");
+
+            console.log(
+              `Checking day interval: today=${now.format("YYYY-MM-DD")}, start=${startDate.format("YYYY-MM-DD")}, days since start=${daysSinceStart}, every ${advanced.everyDays} days`,
+            );
+
+            if (daysSinceStart % advanced.everyDays !== 0) {
+              console.log(
+                ` Skipping: Job ${job.id} is not on a scheduled day (every ${advanced.everyDays} days)`,
               );
               return;
             }
@@ -250,6 +272,94 @@ const startEmailWorker = () => {
 
           const config = configData.data[0];
 
+          console.log(
+            `[USER EMAIL FETCH] Checking config: email_group=${config.email_group}, m_email_event_configurations_user=${config.m_email_event_configurations_user?.length || 0}`,
+          );
+
+          if (
+            config.email_group === "0" &&
+            config.m_email_event_configurations_user &&
+            config.m_email_event_configurations_user.length > 0
+          ) {
+            console.log(
+              `[USER EMAIL FETCH] email_group is 0, fetching user emails`,
+            );
+
+            try {
+              const userIds = config.m_email_event_configurations_user
+                .filter((u) => u.email === "Y")
+                .map((u) => u.user_id)
+                .filter((id) => id);
+
+              console.log(`[USER EMAIL FETCH] User IDs with email=Y:`, userIds);
+
+              if (userIds.length > 0) {
+                const UDF_QUERY_URL = process.env.UDF_QUERY_URL;
+                const query = `select * from m_user_master where id in (${userIds.join(",")})`;
+                console.log(`[USER EMAIL FETCH] UDF Query: ${query}`);
+
+                const userResponse = await axios.post(
+                  UDF_QUERY_URL,
+                  { query: query },
+                  {
+                    headers: {
+                      ...buildApiHeaders({ bearerToken: token }),
+                      "Content-Type": "application/json",
+                    },
+                  },
+                );
+
+                console.log(
+                  `[USER EMAIL FETCH] User UDF Query response:`,
+                  JSON.stringify(userResponse.data, null, 2),
+                );
+
+                let userData = userResponse.data;
+                if (typeof userData === "string") {
+                  try {
+                    userData = JSON.parse(userData);
+                  } catch (e) {
+                    console.warn(
+                      "[USER EMAIL FETCH] User UDF response is string but not valid JSON",
+                    );
+                  }
+                }
+
+                const users =
+                  userData?.tblData || userData?.data || userData?.result || [];
+
+                if (Array.isArray(users) && users.length > 0) {
+                  const userEmails = users
+                    .map((u) => u.email || u.email_address || u.user_email)
+                    .filter((email) => email)
+                    .join(",");
+
+                  console.log(
+                    `[USER EMAIL FETCH] Found user emails: ${userEmails}`,
+                  );
+
+                  config.recipients = userEmails;
+                  console.log(
+                    `[USER EMAIL FETCH] Updated config.recipients to: ${config.recipients}`,
+                  );
+                } else {
+                  console.log(
+                    `[USER EMAIL FETCH] No users found in UDF response`,
+                  );
+                }
+              } else {
+                console.log(
+                  `[USER EMAIL FETCH] No user IDs with email=Y found`,
+                );
+              }
+            } catch (userFetchError) {
+              console.error(
+                `[USER EMAIL FETCH] Error fetching user emails:`,
+                userFetchError.response?.data || userFetchError.message,
+              );
+            }
+          }
+
           let linkExpiryDate;
           const confirmationReq = config.confirmation_req;
           const maxExpiryHours = config.max_expiry_hours || 48;
@@ -276,10 +386,14 @@ const startEmailWorker = () => {
 
           let dynamicData = null;
           if (EntityId && config.event_name) {
+            let VL_entityId = EntityId;
+            if (config.event_name === "d_fm_shipmentorder_cargodetails") {
+              VL_entityId = ChildId;
+            }
             dynamicData = await fetchUdfData({
               token,
               tableName: config.event_name,
-              entityId: EntityId,
+              entityId: VL_entityId,
             });
 
             if (dynamicData) {
@@ -300,7 +414,10 @@ const startEmailWorker = () => {
                 config.msg_body,
                 dynamicData,
               );
-
+              //Write code for attachment
+              if (config.event_name === "d_fm_shipmentorder_cargodetails") {
+                VL_entityId = ChildId;
+              }
               console.log(` Placeholder Replacement Summary:`);
               if (originalSubject !== config.event_name)
                 console.log(`   - Subject updated`);
@@ -311,6 +428,144 @@ const startEmailWorker = () => {
             } else {
               console.warn(
                 ` No dynamic data found for placeholders using EntityId: ${EntityId}`,
+              );
+            }
+          }
+
+          let attachments = [];
+
+          if (
+            config.event_name === "d_fm_shipmentorder_cargodetails" &&
+            ChildId
+          ) {
+            console.log(
+              `[CARGO ATTACHMENT] Event name matches: ${config.event_name}, using ChildId: ${ChildId}`,
+            );
+
+            try {
+              const UDF_QUERY_URL =
+                "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/Common/UDF_query";
+
+              const query = `select * FROM ${config.event_name} where id=${ChildId}`;
+              console.log(`[CARGO ATTACHMENT] UDF Query: ${query}`);
+
+              const response = await axios.post(
+                UDF_QUERY_URL,
+                { query: query },
+                {
+                  headers: {
+                    ...buildApiHeaders({ bearerToken: token }),
+                    "Content-Type": "application/json",
+                  },
+                },
+              );
+
+              console.log(
+                `[CARGO ATTACHMENT] UDF Query response:`,
+                JSON.stringify(response.data, null, 2),
+              );
+
+              console.log(
+                `[CARGO ATTACHMENT] response.data type:`,
+                typeof response.data,
+              );
+
+              let parsedData = response.data;
+              if (typeof response.data === "string") {
+                try {
+                  parsedData = JSON.parse(response.data);
+                  console.log(
+                    `[CARGO ATTACHMENT] Successfully parsed string to JSON`,
+                  );
+                } catch (parseError) {
+                  console.error(
+                    `[CARGO ATTACHMENT] Failed to parse JSON string:`,
+                    parseError.message,
+                  );
+                  parsedData = response.data;
+                }
+              }
+
+              let tblData = [];
+              if (parsedData?.tblData) {
+                tblData = parsedData.tblData;
+                console.log(
+                  `[CARGO ATTACHMENT] Using tblData from parsedData.tblData`,
+                );
+              } else if (Array.isArray(parsedData)) {
+                tblData = parsedData;
+                console.log(
+                  `[CARGO ATTACHMENT] Using parsedData directly as array`,
+                );
+              } else if (parsedData?.data && Array.isArray(parsedData.data)) {
+                tblData = parsedData.data;
+                console.log(`[CARGO ATTACHMENT] Using parsedData.data`);
+              }
+
+              console.log(
+                `[CARGO ATTACHMENT] Final tblData length:`,
+                tblData.length,
+              );
+
+              if (!Array.isArray(tblData) || tblData.length === 0) {
+                console.log(`[CARGO ATTACHMENT] No data found in UDF query`);
+              } else {
+                console.log(
+                  `[CARGO ATTACHMENT] Found ${tblData.length} record(s) in UDF query`,
+                );
+                const record = tblData[0];
+                let cdn_url = record?.cdn_url;
+
+                if (!cdn_url) {
+                  console.log(`[CARGO ATTACHMENT] No cdn_url found in record`);
+                } else {
+                  console.log(`[CARGO ATTACHMENT] Raw cdn_url: "${cdn_url}"`);
+                  cdn_url = cdn_url.trim();
+                  cdn_url = cdn_url.replace(/^[\s`"']+/, "");
+                  cdn_url = cdn_url.replace(/[\s`"']+$/, "");
+                  console.log(
+                    `[CARGO ATTACHMENT] Cleaned cdn_url: "${cdn_url}"`,
+                  );
+
+                  try {
+                    console.log(
+                      `[CARGO ATTACHMENT] Downloading file from: ${cdn_url}`,
+                    );
+                    const fileResponse = await axios.get(cdn_url, {
+                      responseType: "arraybuffer",
+                    });
+
+                    const base64Content = fileResponse.data.toString("base64");
+                    const mimeType =
+                      fileResponse.headers["content-type"] || "application/pdf";
+
+                    console.log(
+                      `[CARGO ATTACHMENT] File downloaded successfully, size: ${base64Content.length} chars`,
+                    );
+
+                    attachments = [
+                      {
+                        filename: `Cargo_Details_${ChildId}.pdf`,
+                        content: base64Content,
+                        encoding: "base64",
+                        contentType: mimeType,
+                      },
+                    ];
+                    console.log(
+                      `[CARGO ATTACHMENT] Added attachment from: ${cdn_url}`,
+                    );
+                  } catch (downloadError) {
+                    console.error(
+                      `[CARGO ATTACHMENT] Failed to download file:`,
+                      downloadError.message,
+                    );
+                  }
+                }
+              }
+            } catch (error) {
+              console.error(
+                `[CARGO ATTACHMENT] Error fetching cargo details:`,
+                error.response?.data || error.message,
               );
             }
           }
@@ -408,7 +663,11 @@ const startEmailWorker = () => {
             }
           }
 
-          const emailPayload = buildEmailPayloadFromConfig(config, smtp);
+          const emailPayload = buildEmailPayloadFromConfig(
+            config,
+            smtp,
+            attachments,
+          );
           if (!emailPayload.to.length) {
             console.warn(
               ` No recipients for event ${Email_Event_Config_Id}, skipping email`,
@@ -424,6 +683,15 @@ const startEmailWorker = () => {
             console.log(`Subject: ${emailPayload.subject}`);
             console.log(`Body (Text): ${emailPayload.text}`);
             console.log(`Body (HTML): ${emailPayload.html}`);
+            if (
+              emailPayload.attachments &&
+              emailPayload.attachments.length > 0
+            ) {
+              console.log(`Attachments:`);
+              emailPayload.attachments.forEach((att, idx) => {
+                console.log(`  ${idx + 1}. ${att.filename}`);
+              });
+            }
             console.log(
               `SMTP Server: ${emailPayload.smtp.server}:${emailPayload.smtp.port}`,
             );
@@ -445,13 +713,16 @@ const startEmailWorker = () => {
             EntityId: EntityId,
             ChildId: ChildId,
             CombinedIds: CombinedIds,
-            link_expiry: linkExpiryDate,
+            link_expiry:
+              typeof linkExpiryDate !== "undefined"
+                ? linkExpiryDate
+                : "9999-12-31",
             response: "Email sent successfully",
             retry_count: job.attemptsMade,
           });
         } else if (job.name === "check-email-queue-status") {
           console.log(`Processing check-email-queue-status job ${job.id}`);
-          await processEmailQueueStatus();
+          // await processEmailQueueStatus();
           console.log(`check-email-queue-status job ${job.id} completed`);
         } else {
           console.log(` Unhandled job type: ${job.name}`);
@@ -482,7 +753,10 @@ const startEmailWorker = () => {
               EntityId: EntityId,
               ChildId: ChildId,
               CombinedIds: CombinedIds,
-              link_expiry: linkExpiryDate,
+              link_expiry:
+                typeof linkExpiryDate !== "undefined"
+                  ? linkExpiryDate
+                  : "9999-12-31",
               response: err.message,
               retry_count: job.attemptsMade,
             });

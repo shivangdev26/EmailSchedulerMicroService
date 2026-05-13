@@ -1,7 +1,7 @@
 const { buildApiHeaders } = require("./apiAuthService");
 
 const defaultSchedulerActionsUrl =
-  "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/Common/GetEmailerActions?pageSize=10";
+  "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/Common/GetEmailerActions?pageSize=1000";
 const defaultEventConfigurationsUrl =
   "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerEventConfiguration/GetAll";
 const defaultSchedulerActionsMethod = "GET";
