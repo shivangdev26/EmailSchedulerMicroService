@@ -104,20 +104,14 @@ const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
       let token = await connection.get(cacheKey);
 
       if (token) {
-        console.log(
-          ` Using cached auth token ${dbName ? `for ${dbName}` : ""}`,
-        );
-        return token;
+        const payload = decodeJwtPayload(token);
+        const now = Math.floor(Date.now() / 1000);
+        
+        if (payload && payload.exp && payload.exp > now) {
+          return token;
+        }
       }
-    } else {
-      console.log(
-        ` Force refreshing auth token ${dbName ? `for ${dbName}` : ""}`,
-      );
     }
-
-    console.log(
-      ` Fetching new auth token from Login API ${dbName ? `for ${dbName}` : ""}`,
-    );
 
     const loginUrl = process.env.LOGIN_API_URL;
     if (!loginUrl) {
@@ -136,29 +130,17 @@ const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
         loginPayload.dbName = dbName;
       }
 
-      console.log(
-        `Trying login at ${loginUrl} with payload:`,
-        JSON.stringify(loginPayload, null, 2),
-      );
       response = await axios.post(loginUrl, loginPayload);
     } catch (error) {
-      console.log(`Login with dbName failed at ${loginUrl}: ${error.message}`);
-
       try {
         const loginPayload = {
           username: process.env.LOGIN_USERNAME,
           password: process.env.LOGIN_PASSWORD,
         };
 
-        console.log(
-          `Trying login without dbName at ${loginUrl}:`,
-          JSON.stringify(loginPayload, null, 2),
-        );
         response = await axios.post(loginUrl, loginPayload);
       } catch (error2) {
-        console.log(
-          `Login without dbName also failed at ${loginUrl}: ${error2.message}`,
-        );
+        console.log(`LOGIN FAILED: ${dbName}`);
         throw error2;
       }
     }
@@ -169,7 +151,15 @@ const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
       response.data?.data?.token;
 
     if (token) {
-      await connection.set(cacheKey, token, "EX", 86400);
+      const payload = decodeJwtPayload(token);
+      const now = Math.floor(Date.now() / 1000);
+      let ttl = 86400;
+      
+      if (payload && payload.exp) {
+        ttl = Math.max(1, payload.exp - now - 300);
+      }
+      
+      await connection.set(cacheKey, token, "EX", ttl);
       return token;
     }
 

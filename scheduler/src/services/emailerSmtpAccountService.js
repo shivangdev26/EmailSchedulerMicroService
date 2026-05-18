@@ -1,4 +1,4 @@
-const { buildApiHeaders } = require("./apiAuthService");
+const { buildApiHeaders, getAuthToken } = require("./apiAuthService");
 
 const defaultSmtpConfigUrl =
   "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerSMTPAccount/2";
@@ -75,43 +75,55 @@ const unwrapSmtpConfig = (payload) => {
 //   return unwrapped;
 // };
 
-const fetchSmtpConfig = async ({ token } = {}) => {
+const fetchSmtpConfig = async ({ token, connection, dbName } = {}) => {
   const url = getSmtpConfigUrl();
 
-  console.log("Calling smtp api:", url);
+  const tryFetch = async (authToken) => {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: buildHeaders({ token: authToken }),
+    });
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: buildHeaders({ token }),
-  });
+    if (!response.ok) {
+      return { success: false, response };
+    }
 
-  console.log("SMTP API status:", response.status);
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      return { success: false, response };
+    }
 
-  // Guard: non-2xx responses (like 522) return HTML, not JSON
-  if (!response.ok) {
-    console.warn(
-      `SMTP config request failed with status ${response.status}, skipping poll cycle.`,
-    );
-    return null;
+    const payload = await response.json();
+
+    if (
+      payload &&
+      typeof payload === "object" &&
+      Number(payload.status) >= 400
+    ) {
+      if (payload.status === 401 || payload.status === 419) {
+        return { success: false, needsRefresh: true, error: payload };
+      }
+      throw new Error(
+        `SMTP config request failed with API status ${payload.status}: ${payload.message || "Unknown API error"}`,
+      );
+    }
+
+    const unwrapped = unwrapSmtpConfig(payload);
+    return { success: true, data: unwrapped };
+  };
+
+  let result = await tryFetch(token);
+
+  if (!result.success && result.needsRefresh && connection && dbName) {
+    const newToken = await getAuthToken(connection, dbName, true);
+    result = await tryFetch(newToken);
   }
 
-  const contentType = response.headers.get("content-type") || "";
-  if (!contentType.includes("application/json")) {
-    const text = await response.text();
-    console.warn("SMTP API returned non-JSON:", text.slice(0, 200));
-    return null;
+  if (result.success) {
+    return result.data;
   }
 
-  const payload = await response.json();
-
-  if (payload && typeof payload === "object" && Number(payload.status) >= 400) {
-    throw new Error(
-      `SMTP config request failed with API status ${payload.status}: ${payload.message || "Unknown API error"}`,
-    );
-  }
-
-  const unwrapped = unwrapSmtpConfig(payload);
-  return unwrapped;
+  return null;
 };
 
 module.exports = {

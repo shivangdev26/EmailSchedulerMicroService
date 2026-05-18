@@ -62,8 +62,6 @@ const startEmailWorker = () => {
   new Worker(
     emailQueueName,
     async (job) => {
-      console.log(` Processing job ${job.id} (${job.name})`);
-
       try {
         if (job.name === "send-email") {
           const { action, smtp, db, advanced } = job.data.payload || job.data;
@@ -73,9 +71,6 @@ const startEmailWorker = () => {
           if (advanced) {
             const startDate = dayjs(advanced.startDate).tz(tz);
             if (now.isBefore(startDate, "day")) {
-              console.log(
-                ` Skipping: Job ${job.id} is before start date ${advanced.startDate}`,
-              );
               return;
             }
 
@@ -83,14 +78,7 @@ const startEmailWorker = () => {
             const startDateOnly = startDate.startOf("day");
             const daysSinceStart = nowDateOnly.diff(startDateOnly, "day");
 
-            console.log(
-              `Checking day interval: today=${now.format("YYYY-MM-DD")}, start=${startDate.format("YYYY-MM-DD")}, days since start=${daysSinceStart}, every ${advanced.everyDays} days`,
-            );
-
             if (daysSinceStart % advanced.everyDays !== 0) {
-              console.log(
-                ` Skipping: Job ${job.id} is not on a scheduled day (every ${advanced.everyDays} days)`,
-              );
               return;
             }
 
@@ -105,9 +93,6 @@ const startEmailWorker = () => {
               currentTimeInMins < startTotalMins ||
               currentTimeInMins > endTotalMins
             ) {
-              console.log(
-                ` Skipping: Job ${job.id} is outside time window ${advanced.startH}:${advanced.startM} - ${advanced.endH}:${advanced.endM}`,
-              );
               return;
             }
           }
@@ -125,14 +110,16 @@ const startEmailWorker = () => {
             cc: normalizeRecipients(action.cc),
             bcc: normalizeRecipients(action.bcc),
             subject:
+              action.subject ||
               action.display_name ||
               action.title ||
-              action.subject ||
               "Scheduled Email",
-            text: action.display_name || "No content",
-            html: action.display_name
-              ? `<div>${action.display_name}</div>`
-              : "No content",
+            text: action.msg_body || action.display_name || "No content",
+            html: action.msg_body
+              ? `<div>${action.msg_body}</div>`
+              : action.display_name
+                ? `<div>${action.display_name}</div>`
+                : "No content",
           };
 
           if (!emailPayload.to.length) {
@@ -387,12 +374,19 @@ const startEmailWorker = () => {
           let dynamicData = null;
           if (EntityId && config.event_name) {
             let VL_entityId = EntityId;
+            let tableNameForPlaceholders = config.event_name;
+
             if (config.event_name === "d_fm_shipmentorder_cargodetails") {
               VL_entityId = ChildId;
+            } else if (config.event_name === "d_cf_filemaster_attachment") {
+              tableNameForPlaceholders = "d_cf_filemaster";
+            } else if (config.event_name === "d_fm_shipmentorder_attachment") {
+              tableNameForPlaceholders = "d_fm_shipmentorder";
             }
+
             dynamicData = await fetchUdfData({
               token,
-              tableName: config.event_name,
+              tableName: tableNameForPlaceholders,
               entityId: VL_entityId,
             });
 
@@ -414,10 +408,6 @@ const startEmailWorker = () => {
                 config.msg_body,
                 dynamicData,
               );
-              //Write code for attachment
-              if (config.event_name === "d_fm_shipmentorder_cargodetails") {
-                VL_entityId = ChildId;
-              }
               console.log(` Placeholder Replacement Summary:`);
               if (originalSubject !== config.event_name)
                 console.log(`   - Subject updated`);
@@ -427,7 +417,7 @@ const startEmailWorker = () => {
                 console.log(`   - Body updated`);
             } else {
               console.warn(
-                ` No dynamic data found for placeholders using EntityId: ${EntityId}`,
+                ` No dynamic data found for placeholders using EntityId: ${EntityId} from table: ${tableNameForPlaceholders}`,
               );
             }
           }
@@ -570,6 +560,159 @@ const startEmailWorker = () => {
             }
           }
 
+          if (
+            (config.event_name === "d_cf_filemaster_attachment" ||
+              config.event_name === "d_fm_shipmentorder_attachment") &&
+            CombinedIds
+          ) {
+            console.log(
+              `[MULTIPLE ATTACHMENTS] Event name matches: ${config.event_name}, using CombinedIds: ${CombinedIds}`,
+            );
+
+            try {
+              const UDF_QUERY_URL =
+                "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/Common/UDF_query";
+
+              const query = `select * from ${config.event_name} where id in (${CombinedIds})`;
+              console.log(`[MULTIPLE ATTACHMENTS] UDF Query: ${query}`);
+
+              const response = await axios.post(
+                UDF_QUERY_URL,
+                { query: query },
+                {
+                  headers: {
+                    ...buildApiHeaders({ bearerToken: token }),
+                    "Content-Type": "application/json",
+                  },
+                },
+              );
+
+              console.log(
+                `[MULTIPLE ATTACHMENTS] UDF Query response:`,
+                JSON.stringify(response.data, null, 2),
+              );
+
+              let parsedData = response.data;
+              if (typeof response.data === "string") {
+                try {
+                  parsedData = JSON.parse(response.data);
+                  console.log(
+                    `[MULTIPLE ATTACHMENTS] Successfully parsed string to JSON`,
+                  );
+                } catch (parseError) {
+                  console.error(
+                    `[MULTIPLE ATTACHMENTS] Failed to parse JSON string:`,
+                    parseError.message,
+                  );
+                  parsedData = response.data;
+                }
+              }
+
+              let tblData = [];
+              if (parsedData?.tblData) {
+                tblData = parsedData.tblData;
+                console.log(
+                  `[MULTIPLE ATTACHMENTS] Using tblData from parsedData.tblData`,
+                );
+              } else if (Array.isArray(parsedData)) {
+                tblData = parsedData;
+                console.log(
+                  `[MULTIPLE ATTACHMENTS] Using parsedData directly as array`,
+                );
+              } else if (parsedData?.data && Array.isArray(parsedData.data)) {
+                tblData = parsedData.data;
+                console.log(`[MULTIPLE ATTACHMENTS] Using parsedData.data`);
+              }
+
+              console.log(
+                `[MULTIPLE ATTACHMENTS] Final tblData length:`,
+                tblData.length,
+              );
+
+              if (!Array.isArray(tblData) || tblData.length === 0) {
+                console.log(
+                  `[MULTIPLE ATTACHMENTS] No data found in UDF query`,
+                );
+              } else {
+                console.log(
+                  `[MULTIPLE ATTACHMENTS] Found ${tblData.length} record(s) in UDF query`,
+                );
+
+                for (const record of tblData) {
+                  let cdn_url = record?.cdn_url;
+                  const fileName =
+                    record?.file_name || `attachment_${record.id}`;
+                  const fileExtension = record?.file_extension || "";
+
+                  if (!cdn_url) {
+                    console.log(
+                      `[MULTIPLE ATTACHMENTS] No cdn_url found for record id: ${record.id}`,
+                    );
+                    continue;
+                  }
+
+                  console.log(
+                    `[MULTIPLE ATTACHMENTS] Raw cdn_url for record ${record.id}: "${cdn_url}"`,
+                  );
+                  cdn_url = cdn_url.trim();
+                  cdn_url = cdn_url.replace(/^[\s`"']+/, "");
+                  cdn_url = cdn_url.replace(/[\s`"']+$/, "");
+                  console.log(
+                    `[MULTIPLE ATTACHMENTS] Cleaned cdn_url for record ${record.id}: "${cdn_url}"`,
+                  );
+
+                  try {
+                    console.log(
+                      `[MULTIPLE ATTACHMENTS] Downloading file from: ${cdn_url}`,
+                    );
+                    const fileResponse = await axios.get(cdn_url, {
+                      responseType: "arraybuffer",
+                    });
+
+                    const base64Content = fileResponse.data.toString("base64");
+                    const mimeType =
+                      fileResponse.headers["content-type"] ||
+                      "application/octet-stream";
+
+                    console.log(
+                      `[MULTIPLE ATTACHMENTS] File downloaded successfully for record ${record.id}, size: ${base64Content.length} chars`,
+                    );
+
+                    const cleanExtension = fileExtension.startsWith(".")
+                      ? fileExtension
+                      : fileExtension
+                        ? `.${fileExtension}`
+                        : "";
+
+                    const finalFileName = fileName.endsWith(cleanExtension)
+                      ? fileName
+                      : `${fileName}${cleanExtension}`;
+
+                    attachments.push({
+                      filename: finalFileName,
+                      content: base64Content,
+                      encoding: "base64",
+                      contentType: mimeType,
+                    });
+                    console.log(
+                      `[MULTIPLE ATTACHMENTS] Added attachment: ${finalFileName}`,
+                    );
+                  } catch (downloadError) {
+                    console.error(
+                      `[MULTIPLE ATTACHMENTS] Failed to download file for record ${record.id}:`,
+                      downloadError.message,
+                    );
+                  }
+                }
+              }
+            } catch (error) {
+              console.error(
+                `[MULTIPLE ATTACHMENTS] Error fetching multiple attachments:`,
+                error.response?.data || error.message,
+              );
+            }
+          }
+
           console.log(`\n=== EMAIL EVENT CONFIGURATION DETAILS ===`);
           console.log(`Event ID: ${Email_Event_Config_Id}`);
           console.log(`Event Name: ${config.event_name}`);
@@ -593,7 +736,7 @@ const startEmailWorker = () => {
           );
           console.log(`========================================\n`);
 
-          const smtp = await fetchSmtpConfig({ token });
+          const smtp = await fetchSmtpConfig({ token, connection, dbName });
           if (!smtp) {
             throw new Error("SMTP configuration unavailable");
           }
