@@ -4,10 +4,19 @@ const { sendEmail } = require("../services/emailSenderService");
 const { getAuthToken, buildApiHeaders } = require("../services/apiAuthService");
 const { fetchSmtpConfig } = require("../services/emailerSmtpAccountService");
 const { updateEmailQueueStatus } = require("../services/ackService");
-const { fetchUdfData, replacePlaceholders } = require("../services/udfService");
-// const {
-//   processEmailQueueStatus,
-// } = require("../services/emailQueueCronService");
+const {
+  fetchUdfData,
+  replacePlaceholders,
+  executeMultipleQueries,
+  replaceQueryPlaceholders,
+} = require("../services/udfService");
+const {
+  generateExcelBuffer,
+  generatePdfBuffer,
+} = require("../services/attachmentService");
+const {
+  processEmailQueueStatus,
+} = require("../services/emailQueueCronService");
 const axios = require("axios");
 
 const dayjs = require("dayjs");
@@ -59,6 +68,11 @@ const buildEmailPayloadFromConfig = (config, smtp, attachments = []) => {
 const startEmailWorker = () => {
   console.log(" Email Worker started");
 
+  const concurrency = Number(process.env.EMAIL_WORKER_CONCURRENCY) || 20;
+  const lockDuration = Number(process.env.EMAIL_WORKER_LOCK_DURATION) || 30000;
+
+  console.log(` Email Worker started with concurrency: ${concurrency}`);
+
   new Worker(
     emailQueueName,
     async (job) => {
@@ -70,31 +84,110 @@ const startEmailWorker = () => {
 
           if (advanced) {
             const startDate = dayjs(advanced.startDate).tz(tz);
+
+            console.log(
+              `[ADV ${action.id}] Now (${tz}): ${now.format()}, Start Date (${tz}): ${startDate.format()}`,
+            );
+
             if (now.isBefore(startDate, "day")) {
+              console.log(
+                `[ADV ${action.id}] Skipping: now is before start date`,
+              );
               return;
             }
 
             const nowDateOnly = now.startOf("day");
             const startDateOnly = startDate.startOf("day");
             const daysSinceStart = nowDateOnly.diff(startDateOnly, "day");
+            console.log(
+              `[ADV ${action.id}] Days since start: ${daysSinceStart}, everyDays: ${advanced.everyDays}, modulo: ${daysSinceStart % advanced.everyDays}`,
+            );
 
-            if (daysSinceStart % advanced.everyDays !== 0) {
+            if (
+              advanced.everyDays > 1 &&
+              daysSinceStart % advanced.everyDays !== 0
+            ) {
+              console.log(`[ADV ${action.id}] Skipping: not on interval day`);
               return;
             }
 
             const currentH = now.hour();
             const currentM = now.minute();
             const currentTimeInMins = currentH * 60 + currentM;
-            const startTotalMins =
-              advanced.startH * 60 + (advanced.startM || 0);
-            const endTotalMins = advanced.endH * 60 + (advanced.endM || 0);
+            const startH = advanced.startH ?? 0;
+            const startM = advanced.startM ?? 0;
+            const endH = advanced.endH ?? 23;
+            const endM = advanced.endM ?? 59;
+            const startTotalMins = startH * 60 + startM;
+            const endTotalMins = endH * 60 + endM;
+            console.log(
+              `[ADV ${action.id}] Time: ${currentTimeInMins} mins, Window: ${startTotalMins}-${endTotalMins}`,
+            );
 
-            if (
-              currentTimeInMins < startTotalMins ||
-              currentTimeInMins > endTotalMins
-            ) {
+            let shouldSkip = false;
+            if (startTotalMins <= endTotalMins) {
+              shouldSkip =
+                currentTimeInMins < startTotalMins ||
+                currentTimeInMins > endTotalMins;
+            } else {
+              shouldSkip =
+                currentTimeInMins > endTotalMins &&
+                currentTimeInMins < startTotalMins;
+            }
+
+            if (shouldSkip) {
+              console.log(`[ADV ${action.id}] Skipping: outside time window`);
               return;
             }
+            console.log(`[ADV ${action.id}] All checks passed, proceeding...`);
+          }
+
+          let queryData = {};
+          let token = null;
+
+          const hasQueries =
+            (action.query && action.query.trim()) ||
+            (action.query_1 && action.query_1.trim()) ||
+            (action.query_2 && action.query_2.trim()) ||
+            (action.query_3 && action.query_3.trim()) ||
+            (action.query_4 && action.query_4.trim());
+
+          if (hasQueries) {
+            try {
+              token = await getAuthToken(connection, db);
+
+              queryData = await executeMultipleQueries({ token, action });
+            } catch (err) {
+              console.error(
+                ` Failed to execute queries for action ${action.id}:`,
+                err.message,
+              );
+            }
+          }
+
+          // Prepare subject and body with placeholders replaced
+          let subject =
+            action.subject ||
+            action.display_name ||
+            action.title ||
+            "Scheduled Email";
+          let textBody =
+            action.body ||
+            action.msg_body ||
+            action.display_name ||
+            "No content";
+          let htmlBody = action.body
+            ? `<div>${action.body}</div>`
+            : action.msg_body
+              ? `<div>${action.msg_body}</div>`
+              : action.display_name
+                ? `<div>${action.display_name}</div>`
+                : "No content";
+
+          if (Object.keys(queryData).length > 0) {
+            subject = replaceQueryPlaceholders(subject, queryData);
+            textBody = replaceQueryPlaceholders(textBody, queryData);
+            htmlBody = replaceQueryPlaceholders(htmlBody, queryData);
           }
 
           const emailPayload = {
@@ -109,18 +202,77 @@ const startEmailWorker = () => {
             to: normalizeRecipients(action.to),
             cc: normalizeRecipients(action.cc),
             bcc: normalizeRecipients(action.bcc),
-            subject:
-              action.subject ||
-              action.display_name ||
-              action.title ||
-              "Scheduled Email",
-            text: action.msg_body || action.display_name || "No content",
-            html: action.msg_body
-              ? `<div>${action.msg_body}</div>`
-              : action.display_name
-                ? `<div>${action.display_name}</div>`
-                : "No content",
+            subject,
+            text: textBody,
+            html: htmlBody,
           };
+
+          const attachments = [];
+          const rawResults = queryData._rawResults || {};
+
+          const hasQueryData = Object.values(rawResults).some(
+            (data) => data && Array.isArray(data) && data.length > 0,
+          );
+
+          if (hasQueryData) {
+            const baseFilename =
+              action.report_filename || action.display_name || "report";
+            const worksheetType = action.worksheet_type || "S";
+
+            if (action.is_excel === "Y") {
+              try {
+                const excel = await generateExcelBuffer(
+                  rawResults,
+                  baseFilename,
+                  worksheetType,
+                );
+                attachments.push({
+                  filename: excel.filename,
+                  content: excel.buffer.toString("base64"),
+                  encoding: "base64",
+                  contentType: excel.mimetype,
+                });
+              } catch (err) {
+                console.error(
+                  "Failed to generate Excel attachment:",
+                  err.message,
+                );
+              }
+            }
+
+            if (action.is_pdf === "Y") {
+              try {
+                const firstQueryKey = Object.keys(rawResults).find(
+                  (k) => rawResults[k] && Array.isArray(rawResults[k]),
+                );
+                const firstQueryData = firstQueryKey
+                  ? rawResults[firstQueryKey]
+                  : null;
+
+                if (firstQueryData && firstQueryData.length > 0) {
+                  const pdf = await generatePdfBuffer(
+                    firstQueryData,
+                    baseFilename,
+                  );
+                  attachments.push({
+                    filename: pdf.filename,
+                    content: pdf.buffer.toString("base64"),
+                    encoding: "base64",
+                    contentType: pdf.mimetype,
+                  });
+                }
+              } catch (err) {
+                console.error(
+                  "Failed to generate PDF attachment:",
+                  err.message,
+                );
+              }
+            }
+          }
+
+          if (attachments.length > 0) {
+            emailPayload.attachments = attachments;
+          }
 
           if (!emailPayload.to.length) {
             console.warn(` No recipients for action ${action.id}, skipping`);
@@ -734,7 +886,6 @@ const startEmailWorker = () => {
           console.log(
             `Max Expiry Hours: ${config.max_expiry_hours || "Not specified"}`,
           );
-          console.log(`========================================\n`);
 
           const smtp = await fetchSmtpConfig({ token, connection, dbName });
           if (!smtp) {
@@ -749,7 +900,6 @@ const startEmailWorker = () => {
           console.log(
             `SMTP Email: ${smtp.email_address || smtp.user_name || "N/A"}`,
           );
-          console.log(`====================================\n`);
 
           let domainUrlData = null;
           try {
@@ -865,7 +1015,7 @@ const startEmailWorker = () => {
           });
         } else if (job.name === "check-email-queue-status") {
           console.log(`Processing check-email-queue-status job ${job.id}`);
-          // await processEmailQueueStatus();
+          await processEmailQueueStatus();
           console.log(`check-email-queue-status job ${job.id} completed`);
         } else {
           console.log(` Unhandled job type: ${job.name}`);
@@ -911,7 +1061,11 @@ const startEmailWorker = () => {
         throw err;
       }
     },
-    { connection },
+    {
+      connection,
+      concurrency,
+      lockDuration,
+    },
   );
 };
 

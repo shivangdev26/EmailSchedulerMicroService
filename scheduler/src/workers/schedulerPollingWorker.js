@@ -1,6 +1,10 @@
 const { Queue } = require("bullmq");
 const { connection, emailQueueName } = require("../bullmq");
-const { fetchSchedulerActions } = require("../services/emailerActionService");
+const {
+  fetchSchedulerActions,
+  buildActionApiHeaders,
+} = require("../services/emailerActionService");
+const axios = require("axios");
 const { fetchSmtpConfig } = require("../services/emailerSmtpAccountService");
 const { getAuthToken } = require("../services/apiAuthService");
 
@@ -19,12 +23,10 @@ const DB_API =
 
 const LOGIN_API =
   "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/auth/Login";
-
-const USERNAME = process.env.LOGIN_USERNAME || "admin";
-const PASSWORD = process.env.LOGIN_PASSWORD || "Nice@4321";
-
 const POLL_INTERVAL = 15000;
-const BATCH_SIZE = 5;
+const USERNAME = process.env.LOGIN_USERNAME || "fin1";
+const PASSWORD = process.env.LOGIN_PASSWORD || "123456";
+const BATCH_SIZE = Number(process.env.SCHEDULER_BATCH_SIZE) || 10;
 
 //cache keys
 const TOKEN_CACHE_KEY_PREFIX = "scheduler:token:";
@@ -53,12 +55,29 @@ const getToken = async (db) => {
 
 // fetch db
 const fetchAllDatabases = async () => {
-  return ["DCCBusinessSuite_mowara_test"];
+  try {
+    const response = await axios.get(DB_API);
+    const databases = response.data?.data || [];
+    const dbNames = databases.map((db) => db.DBName).filter(Boolean);
+
+    // Deduplicate
+    const uniqueDbNames = [...new Set(dbNames)];
+
+    console.log(
+      `[fetchAllDatabases] Fetched ${uniqueDbNames.length} databases:`,
+      uniqueDbNames,
+    );
+    return uniqueDbNames;
+  } catch (err) {
+    console.error("[fetchAllDatabases] Error fetching databases:", err.message);
+    return ["DCCBusinessSuite_mowara_test"]; // Fallback
+  }
 };
 
 //parser
 const parseScheduleDetails = (details, tz = "UTC") => {
-  if (!details) return null;
+  console.log(`[parseScheduleDetails] Called with details:`, details);
+  if (!details || typeof details !== "string") return null;
 
   const one = details.match(
     /occurs on (\d{2})\/(\d{2})\/(\d{4}) at (\d{1,2}):(\d{2}) (AM|PM)/i,
@@ -116,9 +135,10 @@ const parseScheduleDetails = (details, tz = "UTC") => {
     if (endP === "PM" && endH !== 12) endH += 12;
     if (endP === "AM" && endH === 12) endH = 0;
 
-    const startDate = dayjs
-      .tz(`${advanced[12]}-${advanced[11]}-${advanced[10]} 00:00`, tz)
-      .utc();
+    const startDate = dayjs.tz(
+      `${advanced[12]}-${advanced[11]}-${advanced[10]} 00:00`,
+      tz,
+    );
 
     return {
       type: "ADVANCED",
@@ -131,8 +151,80 @@ const parseScheduleDetails = (details, tz = "UTC") => {
       startM,
       endH,
       endM,
-      startDate,
+      startDate: startDate.toISOString(),
       tz,
+    };
+  }
+
+  return null;
+};
+
+const parseScheduleFromObject = (scheduleObj, tz = "UTC") => {
+  if (!scheduleObj) return null;
+
+  if (
+    scheduleObj.schedule_type === "R" &&
+    scheduleObj.occurs === "D" &&
+    scheduleObj.daily_freq === "O" &&
+    scheduleObj.occurs_once
+  ) {
+    const occursOnce = dayjs.tz(scheduleObj.occurs_once, tz);
+    const minute = occursOnce.minute();
+    const hour = occursOnce.hour();
+
+    return {
+      type: "DAILY",
+      cron: `${minute} ${hour} * * *`,
+    };
+  }
+
+  if (
+    scheduleObj.schedule_type === "R" &&
+    scheduleObj.occurs === "D" &&
+    scheduleObj.daily_freq === "E"
+  ) {
+    let everyMinutes = Number(scheduleObj.occurs_every);
+    if (scheduleObj.occurs_every_hour === "H") {
+      everyMinutes *= 60;
+    }
+
+    // Parse starting_at and ending_at to get startH/startM/endH/endM
+    let startH = 0,
+      startM = 0,
+      endH = 23,
+      endM = 59;
+    if (scheduleObj.starting_at) {
+      const startTime = dayjs.tz(scheduleObj.starting_at, tz);
+      startH = startTime.hour();
+      startM = startTime.minute();
+    }
+    if (scheduleObj.ending_at) {
+      const endTime = dayjs.tz(scheduleObj.ending_at, tz);
+      endH = endTime.hour();
+      endM = endTime.minute();
+    }
+
+    return {
+      type: "ADVANCED",
+      everyMinutes,
+      startDate: scheduleObj.start_date
+        ? dayjs.tz(scheduleObj.start_date, tz).toISOString()
+        : dayjs.tz(dayjs(), tz).toISOString(),
+      everyDays: Number(scheduleObj.recurs_every || 1),
+      startH,
+      startM,
+      endH,
+      endM,
+      tz,
+    };
+  }
+
+  if (scheduleObj.schedule_type === "O" && scheduleObj.one_time) {
+    const oneTimeDate = dayjs.tz(scheduleObj.one_time, tz).utc();
+
+    return {
+      type: "ONE",
+      date: oneTimeDate,
     };
   }
 
@@ -151,12 +243,13 @@ const parseScheduleTime = (timeStr) => {
 //job
 const addRepeatJob = async (payload, cron, jobId) => {
   const existing = await emailQueue.getRepeatableJobs();
-  const exists = existing.some(
-    (j) => j.key && j.key.includes(jobId) && j.pattern === cron,
-  );
-
-  if (exists) {
-    return;
+  for (const j of existing) {
+    if (j.key && j.key.includes(jobId)) {
+      console.log(
+        `Removing old repeatable job for ${jobId} with pattern ${j.pattern}`,
+      );
+      await emailQueue.removeRepeatableByKey(j.key);
+    }
   }
 
   await emailQueue.add("send-email", payload, {
@@ -178,7 +271,6 @@ const startSchedulerPolling = () => {
       let allTenants = [];
       let smtpToken = null;
 
-      //batch loop - fetch all tenants first
       for (let i = 0; i < dbs.length; i += BATCH_SIZE) {
         const batch = dbs.slice(i, i + BATCH_SIZE);
 
@@ -188,11 +280,66 @@ const startSchedulerPolling = () => {
             if (!token) return null;
 
             try {
-              const res = await fetchSchedulerActions(undefined, token);
-              if (res && !smtpToken) {
+              const listRes = await fetchSchedulerActions(undefined, token);
+              console.log(
+                `[schedulerPollingWorker] listRes for ${db}:`,
+                listRes,
+              );
+              if (listRes && !smtpToken) {
                 smtpToken = token;
+                console.log(`[schedulerPollingWorker] set smtpToken for ${db}`);
               }
-              return res ? { db, res, token } : null;
+
+              const actionsWithDetails = await Promise.allSettled(
+                (listRes.raw?.tblData || []).map(async (action) => {
+                  try {
+                    const url = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerAction/${action.id}`;
+                    const headers = buildActionApiHeaders(token);
+                    const response = await axios.get(url, { headers });
+
+                    let actionData = null;
+                    if (
+                      response.data?.data &&
+                      Array.isArray(response.data.data) &&
+                      response.data.data.length > 0
+                    ) {
+                      actionData = response.data.data[0];
+                    } else if (
+                      response.data?.tblData &&
+                      Array.isArray(response.data.tblData) &&
+                      response.data.tblData.length > 0
+                    ) {
+                      actionData = response.data.tblData[0];
+                    }
+
+                    return actionData || action;
+                  } catch (err) {
+                    console.warn(
+                      `Failed to fetch complete details for action ${action.id}:`,
+                      err.message,
+                    );
+                    return action;
+                  }
+                }),
+              );
+
+              const validActions = actionsWithDetails
+                .filter((result) => result.status === "fulfilled")
+                .map((result) => result.value);
+
+              console.log(
+                `[fetch complete actions] DB ${db}: fetched ${validActions.length} actions with details`,
+              );
+
+              return {
+                db,
+                res: {
+                  ...listRes,
+                  items: validActions,
+                  raw: { ...listRes.raw, tblData: validActions },
+                },
+                token,
+              };
             } catch {
               return null;
             }
@@ -226,7 +373,33 @@ const startSchedulerPolling = () => {
 
           const payload = { action, smtp, db };
           const tz = action.timezone || "UTC";
-          const parsed = parseScheduleDetails(action.schedule_details, tz);
+
+          let parsed = null;
+          try {
+            if (action.schedule_details && action.schedule_details.trim()) {
+              parsed = parseScheduleDetails(action.schedule_details, tz);
+            }
+
+            if (
+              !parsed &&
+              action.m_emailer_action_schedule &&
+              action.m_emailer_action_schedule.length > 0
+            ) {
+              for (const scheduleObj of action.m_emailer_action_schedule) {
+                parsed = parseScheduleFromObject(scheduleObj, tz);
+                if (parsed) break;
+              }
+            }
+
+            if (!parsed && action.schedule_time) {
+              const cron = parseScheduleTime(action.schedule_time);
+              if (cron) {
+                parsed = { type: "DAILY", cron };
+              }
+            }
+          } catch (err) {
+            parsed = null;
+          }
 
           if (parsed) {
             if (parsed.type === "ONE") {
@@ -258,12 +431,20 @@ const startSchedulerPolling = () => {
             if (parsed.type === "DAILY") {
               const now = dayjs.utc();
               let shouldSchedule = true;
-              const startDateMatch = action.schedule_details.match(
-                /starting on (\d{2})\/(\d{2})\/(\d{4})/i,
-              );
-              const endDateMatch = action.schedule_details.match(
-                /ending on (\d{2})\/(\d{2})\/(\d{4})/i,
-              );
+              const startDateMatch =
+                action.schedule_details &&
+                typeof action.schedule_details === "string"
+                  ? action.schedule_details.match(
+                      /starting on (\d{2})\/(\d{2})\/(\d{4})/i,
+                    )
+                  : null;
+              const endDateMatch =
+                action.schedule_details &&
+                typeof action.schedule_details === "string"
+                  ? action.schedule_details.match(
+                      /ending on (\d{2})\/(\d{2})\/(\d{4})/i,
+                    )
+                  : null;
 
               if (startDateMatch) {
                 const startDate = dayjs
@@ -313,13 +494,11 @@ const startSchedulerPolling = () => {
         }
       }
 
-      //cleanup (temporarily disabled for testing)
-      /*
       const existingJobs = await emailQueue.getRepeatableJobs();
       for (const job of existingJobs) {
         const jobKey = job.key;
         if (!jobKey) continue;
-        
+
         if (
           job.name === "check-email-queue-status" ||
           job.name === "send-daily-email"
@@ -327,16 +506,11 @@ const startSchedulerPolling = () => {
           continue;
         }
 
-        const stillExists = allTenants.some(({ db, res }) =>
-          res?.raw?.tblData?.some((a) => a.is_active === "Y"),
-        );
-
-        const hasValidData = allTenants.some(({ res }) => res?.raw?.tblData);
-        if (!stillExists && hasValidData) {
+        if (jobKey.includes("-adv-") || jobKey.includes("-daily-")) {
+          console.log(`Removing old job: ${jobKey}`);
           await emailQueue.removeRepeatableByKey(job.key);
         }
       }
-      */
     } catch (err) {
       console.error(" ERROR:", err.message);
     }

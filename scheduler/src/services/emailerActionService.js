@@ -319,4 +319,5 @@ module.exports = {
   getSchedulerActionsMethod,
   getEventConfigurationsBody,
   getSchedulerActionsBody,
+  buildActionApiHeaders,
 };
