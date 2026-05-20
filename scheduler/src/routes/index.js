@@ -4,6 +4,12 @@ const userRoutes = require("../v1/routes/userRoutes");
 const emailRoutes = require("../v1/routes/emailRoutes");
 const { triggerEvent } = require("../controller/eventController");
 const { triggerEmailer } = require("../controller/emailerController");
+const {
+  authenticate,
+  listLogFiles,
+  downloadLogFile,
+  downloadAllLogs,
+} = require("../controller/logController");
 
 // const {
 //   processEmailQueueStatus,
@@ -34,5 +40,10 @@ router.post(
   },
   triggerEmailer,
 );
+
+// Log routes with static password authentication
+router.get("/logs", authenticate, listLogFiles);
+router.get("/logs/download-all", authenticate, downloadAllLogs);
+router.get("/logs/:filename", authenticate, downloadLogFile);
 
 module.exports = router;
