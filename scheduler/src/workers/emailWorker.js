@@ -85,16 +85,25 @@ const startEmailWorker = () => {
 
           if (advanced) {
             const startDate = dayjs(advanced.startDate).tz(tz);
+            const endDate = advanced.endDate ? dayjs(advanced.endDate).tz(tz) : null;
 
             logger.info("Advanced schedule check", {
               actionId: action.id,
               timezone: tz,
               now: now.format(),
               startDate: startDate.format(),
+              endDate: endDate ? endDate.format() : null,
             });
 
             if (now.isBefore(startDate, "day")) {
               logger.info("Skipping advanced email: before start date", {
+                actionId: action.id,
+              });
+              return;
+            }
+            
+            if (endDate && now.isAfter(endDate, "day")) {
+              logger.info("Skipping advanced email: after end date", {
                 actionId: action.id,
               });
               return;

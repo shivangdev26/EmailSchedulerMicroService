@@ -109,16 +109,17 @@ const parseScheduleDetails = (details, tz = "UTC") => {
     };
   }
 
-  const advanced = details.match(
-    /every\s*(?:(\d+)\s*day\(s\)|day)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})/i,
-  );
-  //  const advanced =
+  // const advanced =
   //   details.match(
   //     /every\s*(\d+)\s*day\(s\)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*starting on\s*(\d{2})\/(\d{2})\/(\d{4})/i,
   //   ) ||
   //   details.match(
   //     /every\s*(\d+)\s*day\(s\)every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*starting on\s*(\d{2})\/(\d{2})\/(\d{4})/i,
   //   );
+
+  const advanced = details.match(
+    /every\s*(?:(\d+)\s*day\(s\)|day)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})(?:\s*ending on\s*(\d{2})\/(\d{2})\/(\d{4}))?/i,
+  );
 
   if (advanced) {
     let everyDays = advanced[1] ? Number(advanced[1]) : 1;
@@ -143,6 +144,14 @@ const parseScheduleDetails = (details, tz = "UTC") => {
       tz,
     );
 
+    let endDate = null;
+    if (advanced[13] && advanced[14] && advanced[15]) {
+      endDate = dayjs.tz(
+        `${advanced[15]}-${advanced[14]}-${advanced[13]} 23:59`,
+        tz,
+      );
+    }
+
     return {
       type: "ADVANCED",
       everyDays,
@@ -155,6 +164,7 @@ const parseScheduleDetails = (details, tz = "UTC") => {
       endH,
       endM,
       startDate: startDate.toISOString(),
+      endDate: endDate ? endDate.toISOString() : null,
       tz,
     };
   }
