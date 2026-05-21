@@ -58,11 +58,11 @@ const getToken = async (db) => {
 const fetchAllDatabases = async () => {
   // Hardcode to only use DCCBusinessSuite_mowara_test
   const dbNames = ["DCCBusinessSuite_mowara_test"];
-
+  
   logger.info(`Using hardcoded database list`, {
     databases: dbNames,
   });
-
+  
   return dbNames;
 };
 
