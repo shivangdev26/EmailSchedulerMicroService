@@ -18,6 +18,7 @@ const {
   processEmailQueueStatus,
 } = require("../services/emailQueueCronService");
 const axios = require("axios");
+const logger = require("../utils/logger");
 
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
@@ -66,12 +67,12 @@ const buildEmailPayloadFromConfig = (config, smtp, attachments = []) => {
 };
 
 const startEmailWorker = () => {
-  console.log(" Email Worker started");
+  logger.info("Email Worker started");
 
   const concurrency = Number(process.env.EMAIL_WORKER_CONCURRENCY) || 20;
   const lockDuration = Number(process.env.EMAIL_WORKER_LOCK_DURATION) || 30000;
 
-  console.log(` Email Worker started with concurrency: ${concurrency}`);
+  logger.info(`Email Worker started with concurrency: ${concurrency}`);
 
   new Worker(
     emailQueueName,
@@ -85,29 +86,37 @@ const startEmailWorker = () => {
           if (advanced) {
             const startDate = dayjs(advanced.startDate).tz(tz);
 
-            console.log(
-              `[ADV ${action.id}] Now (${tz}): ${now.format()}, Start Date (${tz}): ${startDate.format()}`,
-            );
+            logger.info("Advanced schedule check", {
+              actionId: action.id,
+              timezone: tz,
+              now: now.format(),
+              startDate: startDate.format(),
+            });
 
             if (now.isBefore(startDate, "day")) {
-              console.log(
-                `[ADV ${action.id}] Skipping: now is before start date`,
-              );
+              logger.info("Skipping advanced email: before start date", {
+                actionId: action.id,
+              });
               return;
             }
 
             const nowDateOnly = now.startOf("day");
             const startDateOnly = startDate.startOf("day");
             const daysSinceStart = nowDateOnly.diff(startDateOnly, "day");
-            console.log(
-              `[ADV ${action.id}] Days since start: ${daysSinceStart}, everyDays: ${advanced.everyDays}, modulo: ${daysSinceStart % advanced.everyDays}`,
-            );
+            logger.info("Advanced schedule days check", {
+              actionId: action.id,
+              daysSinceStart,
+              everyDays: advanced.everyDays,
+              modulo: daysSinceStart % advanced.everyDays,
+            });
 
             if (
               advanced.everyDays > 1 &&
               daysSinceStart % advanced.everyDays !== 0
             ) {
-              console.log(`[ADV ${action.id}] Skipping: not on interval day`);
+              logger.info("Skipping advanced email: not on interval day", {
+                actionId: action.id,
+              });
               return;
             }
 
@@ -120,9 +129,12 @@ const startEmailWorker = () => {
             const endM = advanced.endM ?? 59;
             const startTotalMins = startH * 60 + startM;
             const endTotalMins = endH * 60 + endM;
-            console.log(
-              `[ADV ${action.id}] Time: ${currentTimeInMins} mins, Window: ${startTotalMins}-${endTotalMins}`,
-            );
+            logger.info("Advanced schedule time window check", {
+              actionId: action.id,
+              timeInMins: currentTimeInMins,
+              windowStart: startTotalMins,
+              windowEnd: endTotalMins,
+            });
 
             let shouldSkip = false;
             if (startTotalMins <= endTotalMins) {
@@ -136,10 +148,14 @@ const startEmailWorker = () => {
             }
 
             if (shouldSkip) {
-              console.log(`[ADV ${action.id}] Skipping: outside time window`);
+              logger.info("Skipping advanced email: outside time window", {
+                actionId: action.id,
+              });
               return;
             }
-            console.log(`[ADV ${action.id}] All checks passed, proceeding...`);
+            logger.info("Advanced email checks passed, proceeding", {
+              actionId: action.id,
+            });
           }
 
           let queryData = {};
@@ -158,10 +174,10 @@ const startEmailWorker = () => {
 
               queryData = await executeMultipleQueries({ token, action });
             } catch (err) {
-              console.error(
-                ` Failed to execute queries for action ${action.id}:`,
-                err.message,
-              );
+              logger.error(`Failed to execute queries for action`, {
+                actionId: action.id,
+                error: err.message,
+              });
             }
           }
 
@@ -233,10 +249,10 @@ const startEmailWorker = () => {
                   contentType: excel.mimetype,
                 });
               } catch (err) {
-                console.error(
-                  "Failed to generate Excel attachment:",
-                  err.message,
-                );
+                logger.error("Failed to generate Excel attachment", {
+                  actionId: action.id,
+                  error: err.message,
+                });
               }
             }
 
@@ -262,10 +278,10 @@ const startEmailWorker = () => {
                   });
                 }
               } catch (err) {
-                console.error(
-                  "Failed to generate PDF attachment:",
-                  err.message,
-                );
+                logger.error("Failed to generate PDF attachment", {
+                  actionId: action.id,
+                  error: err.message,
+                });
               }
             }
           }
@@ -275,14 +291,18 @@ const startEmailWorker = () => {
           }
 
           if (!emailPayload.to.length) {
-            console.warn(` No recipients for action ${action.id}, skipping`);
+            logger.warn(`No recipients for action, skipping`, {
+              actionId: action.id,
+              database: db,
+            });
             return;
           }
 
           await sendEmail(emailPayload);
-          console.log(
-            ` Email sent successfully for action ${action.id} (DB: ${db})`,
-          );
+          logger.info(`Email sent successfully`, {
+            actionId: action.id,
+            database: db,
+          });
           return;
         }
 

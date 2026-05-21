@@ -7,6 +7,7 @@ const {
 const axios = require("axios");
 const { fetchSmtpConfig } = require("../services/emailerSmtpAccountService");
 const { getAuthToken } = require("../services/apiAuthService");
+const logger = require("../utils/logger");
 
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
@@ -48,7 +49,7 @@ const getToken = async (db) => {
     const token = await getAuthToken(connection, db);
     return token;
   } catch {
-    console.log(` LOGIN FAILED: ${db}`);
+    logger.warn(`Login failed for database: ${db}`);
     return null;
   }
 };
@@ -63,20 +64,19 @@ const fetchAllDatabases = async () => {
     // Deduplicate
     const uniqueDbNames = [...new Set(dbNames)];
 
-    console.log(
-      `[fetchAllDatabases] Fetched ${uniqueDbNames.length} databases:`,
-      uniqueDbNames,
-    );
+    logger.info(`Fetched ${uniqueDbNames.length} databases`, {
+      databases: uniqueDbNames,
+    });
     return uniqueDbNames;
   } catch (err) {
-    console.error("[fetchAllDatabases] Error fetching databases:", err.message);
+    logger.error("Error fetching databases", { error: err.message });
     return ["DCCBusinessSuite_mowara_test"]; // Fallback
   }
 };
 
 //parser
 const parseScheduleDetails = (details, tz = "UTC") => {
-  console.log(`[parseScheduleDetails] Called with details:`, details);
+  logger.debug("Parsing schedule details", { details, timezone: tz });
   if (!details || typeof details !== "string") return null;
 
   const one = details.match(
@@ -245,9 +245,7 @@ const addRepeatJob = async (payload, cron, jobId) => {
   const existing = await emailQueue.getRepeatableJobs();
   for (const j of existing) {
     if (j.key && j.key.includes(jobId)) {
-      console.log(
-        `Removing old repeatable job for ${jobId} with pattern ${j.pattern}`,
-      );
+      logger.info(`Removing old repeatable job`, { jobId, pattern: j.pattern });
       await emailQueue.removeRepeatableByKey(j.key);
     }
   }
@@ -257,12 +255,12 @@ const addRepeatJob = async (payload, cron, jobId) => {
     jobId,
   });
 
-  console.log(" SCHEDULED:", jobId);
+  logger.info(`Scheduled job`, { jobId });
 };
 
 //main
 const startSchedulerPolling = () => {
-  console.log(" Scheduler started");
+  logger.info("Scheduler started");
 
   setInterval(async () => {
     try {
@@ -281,13 +279,13 @@ const startSchedulerPolling = () => {
 
             try {
               const listRes = await fetchSchedulerActions(undefined, token);
-              console.log(
-                `[schedulerPollingWorker] listRes for ${db}:`,
-                listRes,
-              );
+              logger.debug(`Fetched scheduler actions for database`, {
+                database: db,
+                response: listRes,
+              });
               if (listRes && !smtpToken) {
                 smtpToken = token;
-                console.log(`[schedulerPollingWorker] set smtpToken for ${db}`);
+                logger.info(`Set SMTP token for database`, { database: db });
               }
 
               const actionsWithDetails = await Promise.allSettled(
@@ -314,10 +312,10 @@ const startSchedulerPolling = () => {
 
                     return actionData || action;
                   } catch (err) {
-                    console.warn(
-                      `Failed to fetch complete details for action ${action.id}:`,
-                      err.message,
-                    );
+                    logger.warn(`Failed to fetch complete details for action`, {
+                      actionId: action.id,
+                      error: err.message,
+                    });
                     return action;
                   }
                 }),
@@ -327,9 +325,10 @@ const startSchedulerPolling = () => {
                 .filter((result) => result.status === "fulfilled")
                 .map((result) => result.value);
 
-              console.log(
-                `[fetch complete actions] DB ${db}: fetched ${validActions.length} actions with details`,
-              );
+              logger.info(`Fetched complete actions for database`, {
+                database: db,
+                count: validActions.length,
+              });
 
               return {
                 db,
@@ -359,7 +358,7 @@ const startSchedulerPolling = () => {
       });
 
       if (!smtp?.email_address) {
-        console.log(" No SMTP config");
+        logger.warn("No SMTP config found");
         return;
       }
 
@@ -415,7 +414,10 @@ const startSchedulerPolling = () => {
                 jobId,
               });
 
-              console.log(" ONE:", action.id);
+              logger.info(`Scheduled one-time email`, {
+                actionId: action.id,
+                database: db,
+              });
               continue;
             }
             if (parsed.type === "ADVANCED") {
@@ -425,7 +427,10 @@ const startSchedulerPolling = () => {
                 `${db}-adv-${action.id}`,
               );
 
-              console.log(" ADV:", action.id);
+              logger.info(`Scheduled advanced email`, {
+                actionId: action.id,
+                database: db,
+              });
               continue;
             }
             if (parsed.type === "DAILY") {
@@ -507,12 +512,12 @@ const startSchedulerPolling = () => {
         }
 
         if (jobKey.includes("-adv-") || jobKey.includes("-daily-")) {
-          console.log(`Removing old job: ${jobKey}`);
+          logger.info(`Removing old job`, { jobKey });
           await emailQueue.removeRepeatableByKey(job.key);
         }
       }
     } catch (err) {
-      console.error(" ERROR:", err.message);
+      logger.error("Scheduler error", { error: err.message });
     }
   }, POLL_INTERVAL);
 };
