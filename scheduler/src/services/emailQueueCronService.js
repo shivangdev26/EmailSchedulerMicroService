@@ -18,12 +18,12 @@ const processEmailQueueStatus = async () => {
     let databases = [];
 
     try {
-      console.log("Fetching all databases...");
+      // console.log("Fetching all databases...");
       const dbListResponse = await axios.get(DB_LIST_URL);
-      console.log(
-        "Database list API response:",
-        JSON.stringify(dbListResponse.data, null, 2),
-      );
+      // console.log(
+      //   "Database list API response:",
+      //   JSON.stringify(dbListResponse.data, null, 2),
+      // );
 
       const dbData = dbListResponse.data?.data || dbListResponse.data;
       if (Array.isArray(dbData)) {

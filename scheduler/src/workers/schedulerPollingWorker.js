@@ -56,22 +56,14 @@ const getToken = async (db) => {
 
 // fetch db
 const fetchAllDatabases = async () => {
-  try {
-    const response = await axios.get(DB_API);
-    const databases = response.data?.data || [];
-    const dbNames = databases.map((db) => db.DBName).filter(Boolean);
+  // Hardcode to only use DCCBusinessSuite_mowara_test
+  const dbNames = ["DCCBusinessSuite_mowara_test"];
 
-    // Deduplicate
-    const uniqueDbNames = [...new Set(dbNames)];
+  logger.info(`Using hardcoded database list`, {
+    databases: dbNames,
+  });
 
-    logger.info(`Fetched ${uniqueDbNames.length} databases`, {
-      databases: uniqueDbNames,
-    });
-    return uniqueDbNames;
-  } catch (err) {
-    logger.error("Error fetching databases", { error: err.message });
-    return ["DCCBusinessSuite_mowara_test"]; // Fallback
-  }
+  return dbNames;
 };
 
 //parser
