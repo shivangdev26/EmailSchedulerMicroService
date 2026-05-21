@@ -1,1 +1,29 @@
-//coment
+//coment{"level":"info","message":"Email Worker started","service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"level":"info","message":"Email Worker started with concurrency: 20","service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"level":"info","message":"Scheduler started","service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"actionId":26,"level":"info","message":"Advanced schedule check","now":"2026-05-21T05:03:08Z","service":"email-scheduler","startDate":"2026-05-21T02:48:12Z","timestamp":"2026-05-21 05:03:08 UTC","timezone":"UTC"}
+{"actionId":26,"daysSinceStart":0,"everyDays":1,"level":"info","message":"Advanced schedule days check","modulo":0,"service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"actionId":26,"level":"info","message":"Advanced schedule time window check","service":"email-scheduler","timeInMins":303,"timestamp":"2026-05-21 05:03:08 UTC","windowEnd":1380,"windowStart":360}
+{"actionId":26,"level":"info","message":"Skipping advanced email: outside time window","service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"actionId":30,"level":"info","message":"Advanced schedule check","now":"2026-05-21T05:03:08Z","service":"email-scheduler","startDate":"2026-05-21T00:00:00Z","timestamp":"2026-05-21 05:03:08 UTC","timezone":"UTC"}
+{"actionId":30,"daysSinceStart":0,"everyDays":10,"level":"info","message":"Advanced schedule days check","modulo":0,"service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"actionId":30,"level":"info","message":"Advanced schedule time window check","service":"email-scheduler","timeInMins":303,"timestamp":"2026-05-21 05:03:08 UTC","windowEnd":596,"windowStart":169}
+{"actionId":30,"level":"info","message":"Advanced email checks passed, proceeding","service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"actionId":34,"level":"info","message":"Advanced schedule check","now":"2026-05-21T05:03:08Z","service":"email-scheduler","startDate":"2026-05-13T00:00:00Z","timestamp":"2026-05-21 05:03:08 UTC","timezone":"UTC"}
+{"actionId":34,"daysSinceStart":8,"everyDays":10,"level":"info","message":"Advanced schedule days check","modulo":8,"service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"actionId":34,"level":"info","message":"Skipping advanced email: not on interval day","service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"actionId":35,"level":"info","message":"Advanced schedule check","now":"2026-05-21T05:03:08Z","service":"email-scheduler","startDate":"2026-05-21T00:00:00Z","timestamp":"2026-05-21 05:03:08 UTC","timezone":"UTC"}
+{"actionId":35,"daysSinceStart":0,"everyDays":100,"level":"info","message":"Advanced schedule days check","modulo":0,"service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"actionId":35,"level":"info","message":"Advanced schedule time window check","service":"email-scheduler","timeInMins":303,"timestamp":"2026-05-21 05:03:08 UTC","windowEnd":1065,"windowStart":169}
+{"actionId":35,"level":"info","message":"Advanced email checks passed, proceeding","service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"actionId":32,"level":"info","message":"Advanced schedule check","now":"2026-05-21T05:03:08Z","service":"email-scheduler","startDate":"2026-05-13T00:00:00Z","timestamp":"2026-05-21 05:03:08 UTC","timezone":"UTC"}
+{"actionId":32,"daysSinceStart":8,"everyDays":5,"level":"info","message":"Advanced schedule days check","modulo":3,"service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"actionId":32,"level":"info","message":"Skipping advanced email: not on interval day","service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"actionId":33,"level":"info","message":"Advanced schedule check","now":"2026-05-21T05:03:08Z","service":"email-scheduler","startDate":"2026-05-18T00:00:00Z","timestamp":"2026-05-21 05:03:08 UTC","timezone":"UTC"}
+{"actionId":33,"daysSinceStart":3,"everyDays":10,"level":"info","message":"Advanced schedule days check","modulo":3,"service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"actionId":33,"level":"info","message":"Skipping advanced email: not on interval day","service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"actionId":36,"level":"info","message":"Advanced schedule check","now":"2026-05-21T05:03:08Z","service":"email-scheduler","startDate":"2026-05-20T00:00:00Z","timestamp":"2026-05-21 05:03:08 UTC","timezone":"UTC"}
+{"actionId":36,"daysSinceStart":1,"everyDays":20,"level":"info","message":"Advanced schedule days check","modulo":1,"service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"actionId":36,"level":"info","message":"Skipping advanced email: not on interval day","service":"email-scheduler","timestamp":"2026-05-21 05:03:08 UTC"}
+{"actionId":30,"database":"DCCBusinessSuite_mowara_test","level":"info","message":"Email sent successfully","service":"email-scheduler","timestamp":"2026-05-21 05:03:09 UTC"}
+{"actionId":35,"database":"DCCBusinessSuite_mowara_test","level":"info","message":"Email sent successfully","service":"email-scheduler","timestamp":"2026-05-21 05:03:10 UTC"}
