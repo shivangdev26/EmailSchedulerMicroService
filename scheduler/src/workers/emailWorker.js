@@ -519,6 +519,81 @@ const startEmailWorker = () => {
             }
           }
 
+          if (config.include_layout_pdf === "Y") {
+            console.log(
+              `[EMAIL QUEUE FETCH] include_layout_pdf is Y, fetching email_queue record with ID: ${ID}`,
+            );
+
+            try {
+              const UDF_QUERY_URL = process.env.UDF_QUERY_URL;
+              const query = `select * from d_email_queue where id=${ID}`;
+              console.log(`[EMAIL QUEUE FETCH] UDF Query: ${query}`);
+
+              const emailQueueResponse = await axios.post(
+                UDF_QUERY_URL,
+                { query: query },
+                {
+                  headers: {
+                    ...buildApiHeaders({ bearerToken: token }),
+                    "Content-Type": "application/json",
+                  },
+                },
+              );
+
+              console.log(
+                `[EMAIL QUEUE FETCH] Email Queue UDF Query response:`,
+                JSON.stringify(emailQueueResponse.data, null, 2),
+              );
+
+              let emailQueueData = emailQueueResponse.data;
+              if (typeof emailQueueData === "string") {
+                try {
+                  emailQueueData = JSON.parse(emailQueueData);
+                } catch (e) {
+                  console.warn(
+                    "[EMAIL QUEUE FETCH] Email Queue UDF response is string but not valid JSON",
+                  );
+                }
+              }
+
+              const emailQueueRecords =
+                emailQueueData?.tblData ||
+                emailQueueData?.data ||
+                emailQueueData?.result ||
+                [];
+
+              if (
+                Array.isArray(emailQueueRecords) &&
+                emailQueueRecords.length > 0
+              ) {
+                const emailQueueRecord = emailQueueRecords[0];
+                const toEmail = emailQueueRecord.to_email;
+
+                if (toEmail) {
+                  console.log(`[EMAIL QUEUE FETCH] Found to_email: ${toEmail}`);
+                  config.recipients = toEmail;
+                  console.log(
+                    `[EMAIL QUEUE FETCH] Updated config.recipients to: ${config.recipients}`,
+                  );
+                } else {
+                  console.warn(
+                    `[EMAIL QUEUE FETCH] No to_email found in email_queue record`,
+                  );
+                }
+              } else {
+                console.warn(
+                  `[EMAIL QUEUE FETCH] No email_queue records found for ID: ${ID}`,
+                );
+              }
+            } catch (emailQueueFetchError) {
+              console.error(
+                `[EMAIL QUEUE FETCH] Error fetching email_queue record:`,
+                emailQueueFetchError.response?.data ||
+                  emailQueueFetchError.message,
+              );
+            }
+          }
+
           let linkExpiryDate;
           const confirmationReq = config.confirmation_req;
           const maxExpiryHours = config.max_expiry_hours || 48;

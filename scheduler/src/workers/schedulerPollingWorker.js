@@ -56,14 +56,21 @@ const getToken = async (db) => {
 
 // fetch db
 const fetchAllDatabases = async () => {
-  // Hardcode to only use DCCBusinessSuite_mowara_test
-  const dbNames = ["DCCBusinessSuite_mowara_test"];
-  
-  logger.info(`Using hardcoded database list`, {
-    databases: dbNames,
-  });
-  
-  return dbNames;
+  try {
+    const response = await axios.get(DB_API);
+    const databases = response.data?.data || [];
+    const dbNames = databases.map((db) => db.DBName).filter(Boolean);
+
+    const uniqueDbNames = [...new Set(dbNames)];
+
+    logger.info(`Fetched ${uniqueDbNames.length} databases`, {
+      databases: uniqueDbNames,
+    });
+    return uniqueDbNames;
+  } catch (err) {
+    logger.error("Error fetching databases", { error: err.message });
+    return ["DCCBusinessSuite_mowara_test"];
+  }
 };
 
 //parser
@@ -102,16 +109,20 @@ const parseScheduleDetails = (details, tz = "UTC") => {
     };
   }
 
-  const advanced =
-    details.match(
-      /every\s*(\d+)\s*day\(s\)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*starting on\s*(\d{2})\/(\d{2})\/(\d{4})/i,
-    ) ||
-    details.match(
-      /every\s*(\d+)\s*day\(s\)every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*starting on\s*(\d{2})\/(\d{2})\/(\d{4})/i,
-    );
+  const advanced = details.match(
+    /every\s*(?:(\d+)\s*day\(s\)|day)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})/i,
+  );
+  //  const advanced =
+  //   details.match(
+  //     /every\s*(\d+)\s*day\(s\)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*starting on\s*(\d{2})\/(\d{2})\/(\d{4})/i,
+  //   ) ||
+  //   details.match(
+  //     /every\s*(\d+)\s*day\(s\)every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*starting on\s*(\d{2})\/(\d{2})\/(\d{4})/i,
+  //   );
 
   if (advanced) {
-    let everyDays = Number(advanced[1]);
+    let everyDays = advanced[1] ? Number(advanced[1]) : 1;
+    // let everyDays = Number(advanced[1]);
     let everyIntervalAmount = Number(advanced[2]);
     let everyIntervalType = advanced[3].toLowerCase();
 
