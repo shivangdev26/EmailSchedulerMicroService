@@ -1,10 +1,28 @@
 const winston = require("winston");
 const path = require("path");
-
 const fs = require("fs");
-const logsDir = path.join(__dirname, "../../../logs");
+
+const findProjectRoot = () => {
+  let currentDir = __dirname;
+  while (currentDir !== path.dirname(currentDir)) {
+    if (fs.existsSync(path.join(currentDir, "package.json"))) {
+      return currentDir;
+    }
+    currentDir = path.dirname(currentDir);
+  }
+  return __dirname;
+};
+
+const projectRoot = findProjectRoot();
+const logsDir = path.join(projectRoot, "logs");
+
 if (!fs.existsSync(logsDir)) {
-  fs.mkdirSync(logsDir, { recursive: true });
+  try {
+    fs.mkdirSync(logsDir, { recursive: true });
+    console.log("Logs directory created at:", logsDir);
+  } catch (err) {
+    console.error("Failed to create logs directory:", err.message);
+  }
 }
 
 const logFormat = winston.format.combine(
@@ -37,18 +55,18 @@ const logger = winston.createLogger({
       maxFiles: 5,
     }),
   ],
+  exitOnError: false,
 });
 
-// If we're not in production, also log to console with pretty format
-if (process.env.NODE_ENV !== "production") {
-  logger.add(
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        winston.format.simple(),
-      ),
-    }),
-  );
-}
+logger.add(
+  new winston.transports.Console({
+    format: winston.format.combine(
+      winston.format.colorize(),
+      winston.format.simple(),
+    ),
+  }),
+);
+
+logger.info("Logger initialized", { logsDirectory: logsDir });
 
 module.exports = logger;

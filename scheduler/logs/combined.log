@@ -1,0 +1,4 @@
+{"level":"info","logsDirectory":"C:\\Users\\lenovo\\Desktop\\EmailSchedulerMicroService\\scheduler\\logs","message":"Logger initialized","service":"email-scheduler","timestamp":"2026-05-22 10:24:05 UTC"}
+{"level":"info","message":"This is an info log test","service":"email-scheduler","timestamp":"2026-05-22 10:24:05 UTC"}
+{"level":"warn","message":"This is a warning test","service":"email-scheduler","timestamp":"2026-05-22 10:24:05 UTC"}
+{"error":"Test error message","level":"error","message":"This is an error test","service":"email-scheduler","timestamp":"2026-05-22 10:24:05 UTC"}
