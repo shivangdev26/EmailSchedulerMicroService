@@ -53,7 +53,7 @@ const processEmailQueueStatus = async () => {
         continue;
       }
 
-      console.log(`--- Processing database: ${dbName} ---`);
+      // console.log(`--- Processing database: ${dbName} ---`);
 
       try {
         const token = await getAuthToken(connection, dbName);
@@ -215,10 +215,10 @@ const processEmailQueueStatus = async () => {
           }
         }
       } catch (dbError) {
-        console.error(
-          `Error processing database ${dbName}:`,
-          dbError.response?.data || dbError.message,
-        );
+        // console.error(
+        //   `Error processing database ${dbName}:`,
+        //   dbError.response?.data || dbError.message,
+        // );
       }
     }
     console.log("Email queue status check cron job completed");

@@ -49,7 +49,7 @@ const getToken = async (db) => {
     const token = await getAuthToken(connection, db);
     return token;
   } catch {
-    logger.warn(`Login failed for database: ${db}`);
+    // logger.warn(`Login failed for database: ${db}`);
     return null;
   }
 };

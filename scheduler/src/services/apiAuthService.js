@@ -106,7 +106,7 @@ const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
       if (token) {
         const payload = decodeJwtPayload(token);
         const now = Math.floor(Date.now() / 1000);
-        
+
         if (payload && payload.exp && payload.exp > now) {
           return token;
         }
@@ -154,11 +154,11 @@ const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
       const payload = decodeJwtPayload(token);
       const now = Math.floor(Date.now() / 1000);
       let ttl = 86400;
-      
+
       if (payload && payload.exp) {
         ttl = Math.max(1, payload.exp - now - 300);
       }
-      
+
       await connection.set(cacheKey, token, "EX", ttl);
       return token;
     }
@@ -167,10 +167,10 @@ const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
       `Failed to get token from Login API: ${JSON.stringify(response.data)}`,
     );
   } catch (error) {
-    console.error(
-      " Error in getAuthToken:",
-      error.response?.data || error.message,
-    );
+    // console.error(
+    //   " Error in getAuthToken:",
+    //   error.response?.data || error.message,
+    // );
     throw error;
   }
 };
