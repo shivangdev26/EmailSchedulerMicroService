@@ -11,11 +11,16 @@ const {
   downloadAllLogs,
 } = require("../controller/logController");
 
-// const {
-//   processEmailQueueStatus,
-// } = require("../services/emailQueueCronService");
-
 console.log("Registering EMAILER trigger route: /email_scheduler/api/trigger");
+
+// Health check endpoint
+router.get("/health", (req, res) => {
+  res.json({
+    success: true,
+    message: "Server is healthy and running",
+    timestamp: new Date().toISOString(),
+  });
+});
 
 router.use("/v1", userRoutes);
 

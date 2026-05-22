@@ -375,11 +375,25 @@ const startSchedulerPolling = () => {
         return;
       }
 
+      const activeJobKeys = new Set();
+
       for (const { db, res } of allTenants) {
         const actions = res.raw?.tblData || [];
 
         for (const action of actions) {
-          if (action.is_active !== "Y") continue;
+          logger.info(`Checking action`, {
+            actionId: action.id,
+            is_active: action.is_active,
+            database: db,
+          });
+
+          if (action.is_active !== "Y") {
+            logger.info(`Skipping inactive action`, {
+              actionId: action.id,
+              database: db,
+            });
+            continue;
+          }
           const to = normalizeRecipients(action.to);
           if (!to.length) continue;
 
@@ -416,28 +430,52 @@ const startSchedulerPolling = () => {
           if (parsed) {
             if (parsed.type === "ONE") {
               const delay = parsed.date.diff(dayjs.utc());
+              const jobId = `${db}-one-${action.id}-${parsed.date.valueOf()}`;
+              const redisKey = `scheduler:one-time:${jobId}`;
+
+              // Check if we've already scheduled this one-time job
+              const alreadyScheduled = await connection.get(redisKey);
+              if (alreadyScheduled) {
+                logger.debug(`One-time job already scheduled`, { jobId });
+                continue;
+              }
+
               if (delay < -1800000) continue;
 
-              const jobId = `${db}-one-${action.id}-${parsed.date.valueOf()}`;
               const exists = await emailQueue.getJob(jobId);
-              if (exists) continue;
+              if (exists) {
+                logger.debug(`One-time job already exists in queue`, { jobId });
+                continue;
+              }
 
               await emailQueue.add("send-email", payload, {
                 delay: Math.max(delay, 0),
                 jobId,
+                removeOnComplete: true,
+                removeOnFail: true,
               });
+
+              // Mark the job as scheduled in Redis with TTL set to 24 hours after the scheduled date
+              const ttl = Math.max(
+                86400,
+                Math.floor((parsed.date.valueOf() - Date.now()) / 1000) + 86400,
+              );
+              await connection.set(redisKey, "1", "EX", ttl);
 
               logger.info(`Scheduled one-time email`, {
                 actionId: action.id,
                 database: db,
+                jobId,
               });
               continue;
             }
             if (parsed.type === "ADVANCED") {
+              const jobKey = `${db}-adv-${action.id}`;
+              activeJobKeys.add(jobKey);
               await addRepeatJob(
                 { ...payload, advanced: parsed },
                 `*/${parsed.everyMinutes} * * * *`,
-                `${db}-adv-${action.id}`,
+                jobKey,
               );
 
               logger.info(`Scheduled advanced email`, {
@@ -489,11 +527,9 @@ const startSchedulerPolling = () => {
               }
 
               if (shouldSchedule) {
-                await addRepeatJob(
-                  payload,
-                  parsed.cron,
-                  `${db}-daily-${action.id}`,
-                );
+                const jobKey = `${db}-daily-${action.id}`;
+                activeJobKeys.add(jobKey);
+                await addRepeatJob(payload, parsed.cron, jobKey);
               }
               continue;
             }
@@ -505,7 +541,9 @@ const startSchedulerPolling = () => {
           ) {
             const cron = parseScheduleTime(action.schedule_time);
             if (cron) {
-              await addRepeatJob(payload, cron, `${db}-fallback-${action.id}`);
+              const jobKey = `${db}-fallback-${action.id}`;
+              activeJobKeys.add(jobKey);
+              await addRepeatJob(payload, cron, jobKey);
               continue;
             }
           }
@@ -513,6 +551,10 @@ const startSchedulerPolling = () => {
       }
 
       const existingJobs = await emailQueue.getRepeatableJobs();
+      logger.info(`Checking ${existingJobs.length} existing repeatable jobs`, {
+        activeJobKeys: Array.from(activeJobKeys),
+        existingJobKeys: existingJobs.map((j) => j.key),
+      });
       for (const job of existingJobs) {
         const jobKey = job.key;
         if (!jobKey) continue;
@@ -524,13 +566,28 @@ const startSchedulerPolling = () => {
           continue;
         }
 
-        if (jobKey.includes("-adv-") || jobKey.includes("-daily-")) {
-          logger.info(`Removing old job`, { jobKey });
-          await emailQueue.removeRepeatableByKey(job.key);
+        if (
+          jobKey.includes("-adv-") ||
+          jobKey.includes("-daily-") ||
+          jobKey.includes("-fallback-")
+        ) {
+          let isActive = false;
+          for (const activeJobId of activeJobKeys) {
+            if (jobKey.includes(activeJobId)) {
+              isActive = true;
+              break;
+            }
+          }
+          if (!isActive) {
+            logger.info(`Removing inactive job`, { jobKey });
+            await emailQueue.removeRepeatableByKey(job.key);
+          } else {
+            logger.debug(`Keeping active job`, { jobKey });
+          }
         }
       }
     } catch (err) {
-      logger.error("Scheduler error", { error: err.message });
+      logger.error("Scheduler error", { error: err.message, stack: err.stack });
     }
   }, POLL_INTERVAL);
 };

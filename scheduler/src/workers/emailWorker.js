@@ -74,21 +74,69 @@ const startEmailWorker = () => {
 
   logger.info(`Email Worker started with concurrency: ${concurrency}`);
 
-  new Worker(
+  const worker = new Worker(
     emailQueueName,
     async (job) => {
       try {
         if (job.name === "send-email") {
           const { action, smtp, db, advanced } = job.data.payload || job.data;
-          const tz = advanced?.tz || action?.timezone || "UTC";
+
+          let currentAction = action;
+          try {
+            const token = await getAuthToken(connection, db);
+            if (token) {
+              const url = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerAction/${action.id}`;
+              const headers = buildApiHeaders({ bearerToken: token });
+              const response = await axios.get(url, { headers });
+
+              if (
+                response.data?.data &&
+                Array.isArray(response.data.data) &&
+                response.data.data.length > 0
+              ) {
+                currentAction = response.data.data[0];
+              } else if (
+                response.data?.tblData &&
+                Array.isArray(response.data.tblData) &&
+                response.data.tblData.length > 0
+              ) {
+                currentAction = response.data.tblData[0];
+              }
+
+              logger.info(`Fetched latest action details`, {
+                actionId: action.id,
+                database: db,
+                is_active: currentAction.is_active,
+              });
+            }
+          } catch (err) {
+            logger.warn(`Failed to fetch latest action details`, {
+              actionId: action.id,
+              database: db,
+              error: err.message,
+            });
+          }
+
+          // Skip if action is not active
+          if (currentAction && currentAction.is_active !== "Y") {
+            logger.info(`Skipping inactive action`, {
+              actionId: action.id,
+              database: db,
+            });
+            return;
+          }
+
+          const tz = advanced?.tz || currentAction?.timezone || "UTC";
           const now = dayjs().tz(tz);
 
           if (advanced) {
             const startDate = dayjs(advanced.startDate).tz(tz);
-            const endDate = advanced.endDate ? dayjs(advanced.endDate).tz(tz) : null;
+            const endDate = advanced.endDate
+              ? dayjs(advanced.endDate).tz(tz)
+              : null;
 
             logger.info("Advanced schedule check", {
-              actionId: action.id,
+              actionId: currentAction.id,
               timezone: tz,
               now: now.format(),
               startDate: startDate.format(),
@@ -97,14 +145,14 @@ const startEmailWorker = () => {
 
             if (now.isBefore(startDate, "day")) {
               logger.info("Skipping advanced email: before start date", {
-                actionId: action.id,
+                actionId: currentAction.id,
               });
               return;
             }
-            
+
             if (endDate && now.isAfter(endDate, "day")) {
               logger.info("Skipping advanced email: after end date", {
-                actionId: action.id,
+                actionId: currentAction.id,
               });
               return;
             }
@@ -113,7 +161,7 @@ const startEmailWorker = () => {
             const startDateOnly = startDate.startOf("day");
             const daysSinceStart = nowDateOnly.diff(startDateOnly, "day");
             logger.info("Advanced schedule days check", {
-              actionId: action.id,
+              actionId: currentAction.id,
               daysSinceStart,
               everyDays: advanced.everyDays,
               modulo: daysSinceStart % advanced.everyDays,
@@ -124,7 +172,7 @@ const startEmailWorker = () => {
               daysSinceStart % advanced.everyDays !== 0
             ) {
               logger.info("Skipping advanced email: not on interval day", {
-                actionId: action.id,
+                actionId: currentAction.id,
               });
               return;
             }
@@ -139,7 +187,7 @@ const startEmailWorker = () => {
             const startTotalMins = startH * 60 + startM;
             const endTotalMins = endH * 60 + endM;
             logger.info("Advanced schedule time window check", {
-              actionId: action.id,
+              actionId: currentAction.id,
               timeInMins: currentTimeInMins,
               windowStart: startTotalMins,
               windowEnd: endTotalMins,
@@ -158,12 +206,12 @@ const startEmailWorker = () => {
 
             if (shouldSkip) {
               logger.info("Skipping advanced email: outside time window", {
-                actionId: action.id,
+                actionId: currentAction.id,
               });
               return;
             }
             logger.info("Advanced email checks passed, proceeding", {
-              actionId: action.id,
+              actionId: currentAction.id,
             });
           }
 
@@ -171,20 +219,23 @@ const startEmailWorker = () => {
           let token = null;
 
           const hasQueries =
-            (action.query && action.query.trim()) ||
-            (action.query_1 && action.query_1.trim()) ||
-            (action.query_2 && action.query_2.trim()) ||
-            (action.query_3 && action.query_3.trim()) ||
-            (action.query_4 && action.query_4.trim());
+            (currentAction.query && currentAction.query.trim()) ||
+            (currentAction.query_1 && currentAction.query_1.trim()) ||
+            (currentAction.query_2 && currentAction.query_2.trim()) ||
+            (currentAction.query_3 && currentAction.query_3.trim()) ||
+            (currentAction.query_4 && currentAction.query_4.trim());
 
           if (hasQueries) {
             try {
               token = await getAuthToken(connection, db);
 
-              queryData = await executeMultipleQueries({ token, action });
+              queryData = await executeMultipleQueries({
+                token,
+                action: currentAction,
+              });
             } catch (err) {
               logger.error(`Failed to execute queries for action`, {
-                actionId: action.id,
+                actionId: currentAction.id,
                 error: err.message,
               });
             }
@@ -192,21 +243,21 @@ const startEmailWorker = () => {
 
           // Prepare subject and body with placeholders replaced
           let subject =
-            action.subject ||
-            action.display_name ||
-            action.title ||
+            currentAction.subject ||
+            currentAction.display_name ||
+            currentAction.title ||
             "Scheduled Email";
           let textBody =
-            action.body ||
-            action.msg_body ||
-            action.display_name ||
+            currentAction.body ||
+            currentAction.msg_body ||
+            currentAction.display_name ||
             "No content";
-          let htmlBody = action.body
-            ? `<div>${action.body}</div>`
-            : action.msg_body
-              ? `<div>${action.msg_body}</div>`
-              : action.display_name
-                ? `<div>${action.display_name}</div>`
+          let htmlBody = currentAction.body
+            ? `<div>${currentAction.body}</div>`
+            : currentAction.msg_body
+              ? `<div>${currentAction.msg_body}</div>`
+              : currentAction.display_name
+                ? `<div>${currentAction.display_name}</div>`
                 : "No content";
 
           if (Object.keys(queryData).length > 0) {
@@ -224,9 +275,9 @@ const startEmailWorker = () => {
               secure: smtp.secure || smtp.is_ssl === "Y",
             },
             from: smtp.email_address || smtp.user_name,
-            to: normalizeRecipients(action.to),
-            cc: normalizeRecipients(action.cc),
-            bcc: normalizeRecipients(action.bcc),
+            to: normalizeRecipients(currentAction.to),
+            cc: normalizeRecipients(currentAction.cc),
+            bcc: normalizeRecipients(currentAction.bcc),
             subject,
             text: textBody,
             html: htmlBody,
@@ -241,10 +292,12 @@ const startEmailWorker = () => {
 
           if (hasQueryData) {
             const baseFilename =
-              action.report_filename || action.display_name || "report";
-            const worksheetType = action.worksheet_type || "S";
+              currentAction.report_filename ||
+              currentAction.display_name ||
+              "report";
+            const worksheetType = currentAction.worksheet_type || "S";
 
-            if (action.is_excel === "Y") {
+            if (currentAction.is_excel === "Y") {
               try {
                 const excel = await generateExcelBuffer(
                   rawResults,
@@ -259,13 +312,13 @@ const startEmailWorker = () => {
                 });
               } catch (err) {
                 logger.error("Failed to generate Excel attachment", {
-                  actionId: action.id,
+                  actionId: currentAction.id,
                   error: err.message,
                 });
               }
             }
 
-            if (action.is_pdf === "Y") {
+            if (currentAction.is_pdf === "Y") {
               try {
                 const firstQueryKey = Object.keys(rawResults).find(
                   (k) => rawResults[k] && Array.isArray(rawResults[k]),
@@ -288,7 +341,7 @@ const startEmailWorker = () => {
                 }
               } catch (err) {
                 logger.error("Failed to generate PDF attachment", {
-                  actionId: action.id,
+                  actionId: currentAction.id,
                   error: err.message,
                 });
               }
@@ -301,7 +354,7 @@ const startEmailWorker = () => {
 
           if (!emailPayload.to.length) {
             logger.warn(`No recipients for action, skipping`, {
-              actionId: action.id,
+              actionId: currentAction.id,
               database: db,
             });
             return;
@@ -309,7 +362,7 @@ const startEmailWorker = () => {
 
           await sendEmail(emailPayload);
           logger.info(`Email sent successfully`, {
-            actionId: action.id,
+            actionId: currentAction.id,
             database: db,
           });
           return;
@@ -1171,6 +1224,30 @@ const startEmailWorker = () => {
       lockDuration,
     },
   );
+
+  worker.on("completed", (job) => {
+    logger.info(`Job completed successfully`, {
+      jobId: job.id,
+      jobName: job.name,
+    });
+  });
+
+  worker.on("failed", (job, err) => {
+    logger.error(`Job failed`, {
+      jobId: job?.id,
+      jobName: job?.name,
+      error: err.message,
+      stack: err.stack,
+    });
+  });
+
+  worker.on("error", (err) => {
+    logger.error(`Worker error`, { error: err.message, stack: err.stack });
+  });
+
+  worker.on("stalled", (jobId) => {
+    logger.warn(`Job stalled`, { jobId });
+  });
 };
 
 module.exports = { startEmailWorker };
