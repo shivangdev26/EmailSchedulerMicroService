@@ -2,28 +2,45 @@ const winston = require("winston");
 const path = require("path");
 const fs = require("fs");
 
-const findProjectRoot = () => {
+const getLogsDir = () => {
   let currentDir = __dirname;
-  while (currentDir !== path.dirname(currentDir)) {
-    if (fs.existsSync(path.join(currentDir, "package.json"))) {
-      return currentDir;
+  let projectRoot = null;
+
+  try {
+    while (currentDir !== path.dirname(currentDir)) {
+      if (fs.existsSync(path.join(currentDir, "package.json"))) {
+        projectRoot = currentDir;
+        break;
+      }
+      currentDir = path.dirname(currentDir);
     }
-    currentDir = path.dirname(currentDir);
+  } catch (e) {
+    console.error("Error finding project root:", e.message);
   }
-  return __dirname;
+
+  if (!projectRoot) {
+    projectRoot = path.join(__dirname, "../..");
+  }
+
+  const logsDir = path.join(projectRoot, "logs");
+
+  try {
+    if (!fs.existsSync(logsDir)) {
+      fs.mkdirSync(logsDir, { recursive: true });
+      console.log("Logs directory created at:", logsDir);
+    }
+  } catch (e) {
+    console.error("Error creating logs directory:", e.message);
+  }
+
+  return logsDir;
 };
 
-const projectRoot = findProjectRoot();
-const logsDir = path.join(projectRoot, "logs");
+const logsDir = getLogsDir();
 
-if (!fs.existsSync(logsDir)) {
-  try {
-    fs.mkdirSync(logsDir, { recursive: true });
-    console.log("Logs directory created at:", logsDir);
-  } catch (err) {
-    console.error("Failed to create logs directory:", err.message);
-  }
-}
+console.log("=== LOGGER INITIALIZATION ===");
+console.log("Logs directory:", logsDir);
+console.log("Dir exists:", fs.existsSync(logsDir));
 
 const logFormat = winston.format.combine(
   winston.format.timestamp(),
@@ -38,27 +55,36 @@ const logFormat = winston.format.combine(
   winston.format.json(),
 );
 
-const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || "info",
-  format: logFormat,
-  defaultMeta: { service: "email-scheduler" },
-  transports: [
+const transports = [];
+
+try {
+  transports.push(
     new winston.transports.File({
       filename: path.join(logsDir, "combined.log"),
       maxsize: 5242880,
       maxFiles: 5,
     }),
+  );
+  console.log("Added combined.log transport");
+} catch (e) {
+  console.error("Error adding combined.log transport:", e.message);
+}
+
+try {
+  transports.push(
     new winston.transports.File({
       filename: path.join(logsDir, "error.log"),
       level: "error",
       maxsize: 5242880,
       maxFiles: 5,
     }),
-  ],
-  exitOnError: false,
-});
+  );
+  console.log("Added error.log transport");
+} catch (e) {
+  console.error("Error adding error.log transport:", e.message);
+}
 
-logger.add(
+transports.push(
   new winston.transports.Console({
     format: winston.format.combine(
       winston.format.colorize(),
@@ -66,7 +92,23 @@ logger.add(
     ),
   }),
 );
+console.log("Added console transport");
 
-logger.info("Logger initialized", { logsDirectory: logsDir });
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || "info",
+  format: logFormat,
+  defaultMeta: { service: "email-scheduler" },
+  transports: transports,
+  exitOnError: false,
+});
+
+console.log("Logger created successfully");
+
+try {
+  logger.info("Logger initialized successfully", { logsDirectory: logsDir });
+  console.log("Test log message sent to logger");
+} catch (e) {
+  console.error("Error sending test log:", e.message);
+}
 
 module.exports = logger;
