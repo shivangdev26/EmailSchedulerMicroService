@@ -1,23 +1,28 @@
-const responseHandler = (req, res, next) => {
-  res.success = (message, data) => {
-    return res.json({
-      success: true,
-      data: data,
-      message: message || "Success",
-      status: res.statusCode || 200,
-    });
-  };
+const logger = require("./logger");
 
-  res.error = (message, statusCode = 400) => {
-    return res.status(statusCode).json({
-      success: false,
-      data: null,
-      message: message || "Error",
-      status: statusCode,
-    });
-  };
+const errorHandler = (err, req, res, next) => {
+  logger.error("API Error", {
+    message: err.message,
+    stack: err.stack,
+    url: req.originalUrl,
+    method: req.method,
+  });
 
-  next();
+  console.error("\n\n API ERROR");
+  console.error("URL:", req.originalUrl);
+  console.error("Method:", req.method);
+  console.error("Message:", err.message);
+  console.error("Stack:", err.stack);
+
+  const statusCode = err.statusCode || 500;
+  const message = err.message || "Internal Server Error";
+
+  res.status(statusCode).json({
+    success: false,
+    message: message,
+    data: null,
+    status: statusCode,
+  });
 };
 
-module.exports = responseHandler;
+module.exports = errorHandler;
