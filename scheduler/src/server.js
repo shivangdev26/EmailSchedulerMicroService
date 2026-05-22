@@ -14,8 +14,47 @@ const logger = require("./utils/logger");
 
 let workersStarted = false;
 let cronJobsInitialized = false;
+let isShuttingDown = false;
 let redisConnectionAttempts = 0;
-const MAX_REDIS_RECONNECT_ATTEMPTS = 10;
+
+const activeIntervals = [];
+const activeTimeouts = [];
+let emailWorker = null;
+let schedulerPollingWorker = null;
+
+const trackInterval = (intervalId) => {
+  activeIntervals.push(intervalId);
+  return intervalId;
+};
+
+const trackTimeout = (timeoutId) => {
+  activeTimeouts.push(timeoutId);
+  return timeoutId;
+};
+
+const clearAllTimers = () => {
+  console.log("Clearing all intervals and timeouts...");
+  logger.info("Clearing all intervals and timeouts...");
+
+  activeIntervals.forEach((id) => {
+    try {
+      clearInterval(id);
+    } catch (e) {
+      console.warn("Error clearing interval:", e.message);
+    }
+  });
+
+  activeTimeouts.forEach((id) => {
+    try {
+      clearTimeout(id);
+    } catch (e) {
+      console.warn("Error clearing timeout:", e.message);
+    }
+  });
+
+  activeIntervals.length = 0;
+  activeTimeouts.length = 0;
+};
 
 const createRedisConnection = () => {
   const connection = new IORedis({
@@ -23,6 +62,7 @@ const createRedisConnection = () => {
     port: process.env.REDIS_PORT || 6379,
     maxRetriesPerRequest: null,
     retryStrategy: (times) => {
+      if (isShuttingDown) return null;
       const delay = Math.min(times * 50, 2000);
       logger.warn(
         `Redis reconnection attempt ${times}, next retry in ${delay}ms`,
@@ -33,7 +73,9 @@ const createRedisConnection = () => {
   });
 
   connection.on("error", (err) => {
-    logger.error("Redis connection error", { error: err.message });
+    if (!isShuttingDown) {
+      logger.error("Redis connection error", { error: err.message });
+    }
   });
 
   connection.on("connect", () => {
@@ -46,12 +88,16 @@ const createRedisConnection = () => {
   });
 
   connection.on("close", () => {
-    logger.warn("Redis connection closed");
+    if (!isShuttingDown) {
+      logger.warn("Redis connection closed");
+    }
   });
 
   connection.on("reconnecting", () => {
-    redisConnectionAttempts++;
-    logger.warn(`Redis reconnecting... Attempt ${redisConnectionAttempts}`);
+    if (!isShuttingDown) {
+      redisConnectionAttempts++;
+      logger.warn(`Redis reconnecting... Attempt ${redisConnectionAttempts}`);
+    }
   });
 
   return connection;
@@ -66,22 +112,26 @@ process.on("uncaughtException", (err) => {
   console.error("Message:", err.message);
   console.error("Stack:", err.stack);
 
-  logger.info("Attempting to restart workers and cron jobs...");
-  setTimeout(() => {
-    if (workersStarted) {
-      try {
-        const { startEmailWorker } = require("./workers/emailWorker");
-        const {
-          startSchedulerPolling,
-        } = require("./workers/schedulerPollingWorker");
-        startEmailWorker();
-        startSchedulerPolling();
-        logger.info("Workers restarted after uncaught exception");
-      } catch (e) {
-        logger.error("Failed to restart workers", { error: e.message });
-      }
-    }
-  }, 5000);
+  if (!isShuttingDown) {
+    logger.info("Attempting to restart workers and cron jobs...");
+    trackTimeout(
+      setTimeout(() => {
+        if (workersStarted && !isShuttingDown) {
+          try {
+            const { startEmailWorker } = require("./workers/emailWorker");
+            const {
+              startSchedulerPolling,
+            } = require("./workers/schedulerPollingWorker");
+            emailWorker = startEmailWorker();
+            schedulerPollingWorker = startSchedulerPolling();
+            logger.info("Workers restarted after uncaught exception");
+          } catch (e) {
+            logger.error("Failed to restart workers", { error: e.message });
+          }
+        }
+      }, 5000),
+    );
+  }
 });
 
 process.on("unhandledRejection", (reason, promise) => {
@@ -137,6 +187,8 @@ const { startEmailWorker } = require("./workers/emailWorker");
 const { startSchedulerPolling } = require("./workers/schedulerPollingWorker");
 
 const initializeCronJobs = async () => {
+  if (isShuttingDown) return;
+
   try {
     console.log("Initializing BullMQ scheduler jobs");
     logger.info("Initializing BullMQ scheduler jobs");
@@ -179,14 +231,16 @@ const initializeCronJobs = async () => {
       stack: error.stack,
     });
 
-    if (!cronJobsInitialized) {
+    if (!cronJobsInitialized && !isShuttingDown) {
       logger.info("Retrying cron job initialization in 10 seconds...");
-      setTimeout(initializeCronJobs, 10000);
+      trackTimeout(setTimeout(initializeCronJobs, 10000));
     }
   }
 };
 
 const verifyAndRestartServices = async () => {
+  if (isShuttingDown) return;
+
   try {
     logger.info("Verifying services are running...");
 
@@ -209,15 +263,69 @@ const PORT = process.env.PORT || 5000;
 
 app.set("trust proxy", true);
 
-const server = app.listen(PORT, "0.0.0.0", async () => {
+let server = null;
+
+const gracefulShutdown = async (signal) => {
+  if (isShuttingDown) {
+    console.log("Already shutting down, ignoring duplicate signal:", signal);
+    return;
+  }
+
+  isShuttingDown = true;
+  console.log(`\n${signal} received. Starting graceful shutdown...`);
+  logger.info(`${signal} received. Starting graceful shutdown...`);
+
+  clearAllTimers();
+
+  if (server) {
+    server.close(() => {
+      console.log("HTTP server closed");
+      logger.info("HTTP server closed");
+      cleanupResources();
+    });
+  } else {
+    cleanupResources();
+  }
+
+  trackTimeout(
+    setTimeout(() => {
+      console.error("Forced shutdown after timeout");
+      logger.error("Forced shutdown after timeout");
+      process.exit(1);
+    }, 30000),
+  );
+};
+
+const cleanupResources = async () => {
+  try {
+    console.log("Closing BullMQ queue...");
+    await emailQueue.close();
+    console.log("BullMQ queue closed");
+
+    console.log("Quitting Redis connection...");
+    await connection.quit();
+    console.log("Redis connection closed");
+    logger.info("BullMQ and Redis connections closed successfully");
+
+    console.log("Graceful shutdown complete");
+    logger.info("Graceful shutdown complete");
+    process.exit(0);
+  } catch (error) {
+    console.error("Error during resource cleanup:", error);
+    logger.error("Error during resource cleanup", { error: error.message });
+    process.exit(1);
+  }
+};
+
+server = app.listen(PORT, "0.0.0.0", async () => {
   server.keepAliveTimeout = 65000;
   server.headersTimeout = 66000;
   server.maxConnections = 1000;
 
   logger.info("Starting services...");
 
-  startEmailWorker();
-  startSchedulerPolling();
+  emailWorker = startEmailWorker();
+  schedulerPollingWorker = startSchedulerPolling();
   workersStarted = true;
 
   await initializeCronJobs();
@@ -226,6 +334,8 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
   logger.info(`Server is running on http://localhost:${PORT}`);
 
   const selfPing = async () => {
+    if (isShuttingDown) return;
+
     try {
       logger.info("Self-ping - keeping server active", {
         timestamp: new Date().toISOString(),
@@ -237,43 +347,14 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
     }
   };
 
-  setInterval(selfPing, 5 * 60 * 1000);
-  setTimeout(selfPing, 10000);
+  trackInterval(setInterval(selfPing, 5 * 60 * 1000));
+  trackTimeout(setTimeout(selfPing, 10000));
 
-  setInterval(verifyAndRestartServices, 60 * 60 * 1000);
+  trackInterval(setInterval(verifyAndRestartServices, 60 * 60 * 1000));
 });
-
-const gracefulShutdown = async (signal) => {
-  console.log(`${signal} received. Starting graceful shutdown...`);
-  logger.info(`${signal} received. Starting graceful shutdown...`);
-
-  server.close(async () => {
-    console.log("HTTP server closed");
-    logger.info("HTTP server closed");
-
-    try {
-      await emailQueue.close();
-      await connection.quit();
-      console.log("BullMQ connection closed");
-      logger.info("BullMQ connection closed");
-      process.exit(0);
-    } catch (error) {
-      console.error("Shutdown error:", error);
-      logger.error("Shutdown error", { error: error.message });
-      process.exit(1);
-    }
-  });
-
-  setTimeout(() => {
-    console.error("Forced shutdown after timeout");
-    logger.error("Forced shutdown after timeout");
-    process.exit(1);
-  }, 30000);
-};
 
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-
 process.on("SIGBREAK", () => gracefulShutdown("SIGBREAK"));
 
 if (typeof process !== "undefined" && process.platform === "win32") {
@@ -297,9 +378,13 @@ const isIISNode = typeof process.env.IISNODE_VERSION !== "undefined";
 if (isIISNode) {
   logger.info("Running under IISNode - enabling additional safeguards");
 
-  setInterval(() => {
-    logger.debug("IISNode keep-alive ping");
-  }, 30000);
+  trackInterval(
+    setInterval(() => {
+      if (!isShuttingDown) {
+        logger.debug("IISNode keep-alive ping");
+      }
+    }, 30000),
+  );
 }
 
 module.exports = { app, server, emailQueue, connection };
