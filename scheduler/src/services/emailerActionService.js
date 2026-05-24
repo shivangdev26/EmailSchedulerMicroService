@@ -91,40 +91,55 @@ const executeRequest = async (url, method, body, customToken) => {
   return fetch(url, requestOptions);
 };
 
-const fetchJson = async (url, method, body, customToken) => {
-  const normalizedMethod = (method || "GET").toUpperCase();
-  let response = await executeRequest(url, normalizedMethod, body, customToken);
-  let finalMethod = normalizedMethod;
+const fetchJson = async (url, method, body, customToken, retries = 3) => {
+  let lastError = null;
+  
+  for (let i = 0; i < retries; i++) {
+    try {
+      const normalizedMethod = (method || "GET").toUpperCase();
+      let response = await executeRequest(url, normalizedMethod, body, customToken);
+      let finalMethod = normalizedMethod;
 
-  if (
-    (response.status === 400 || response.status === 405) &&
-    normalizedMethod === "GET"
-  ) {
-    console.log(
-      `Received ${response.status} for ${url} with GET. Retrying with POST.`,
-    );
-    response = await executeRequest(url, "POST", body, customToken);
-    finalMethod = "POST";
+      if (
+        (response.status === 400 || response.status === 405) &&
+        normalizedMethod === "GET"
+      ) {
+        console.log(
+          `Received ${response.status} for ${url} with GET. Retrying with POST.`,
+        );
+        response = await executeRequest(url, "POST", body, customToken);
+        finalMethod = "POST";
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          `Request failed for ${url} with method ${finalMethod} and status ${response.status}`,
+        );
+      }
+
+      const payload = await response.json();
+
+      if (payload && typeof payload === "object" && Number(payload.status) >= 400) {
+        throw new Error(
+          `Request failed for ${url} with method ${finalMethod} and API status ${payload.status}: ${payload.message || "Unknown API error"}`,
+        );
+      }
+
+      return {
+        payload,
+        method: finalMethod,
+      };
+    } catch (error) {
+      lastError = error;
+      console.warn(`fetchJson attempt ${i + 1}/${retries} failed:`, error.message);
+      
+      if (i < retries - 1) {
+        await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
+      }
+    }
   }
 
-  if (!response.ok) {
-    throw new Error(
-      `Request failed for ${url} with method ${finalMethod} and status ${response.status}`,
-    );
-  }
-
-  const payload = await response.json();
-
-  if (payload && typeof payload === "object" && Number(payload.status) >= 400) {
-    throw new Error(
-      `Request failed for ${url} with method ${finalMethod} and API status ${payload.status}: ${payload.message || "Unknown API error"}`,
-    );
-  }
-
-  return {
-    payload,
-    method: finalMethod,
-  };
+  throw lastError || new Error("fetchJson failed after retries");
 };
 
 const tryParseJsonString = (value) => {

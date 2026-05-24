@@ -78,38 +78,54 @@ const unwrapSmtpConfig = (payload) => {
 const fetchSmtpConfig = async ({ token, connection, dbName } = {}) => {
   const url = getSmtpConfigUrl();
 
-  const tryFetch = async (authToken) => {
-    const response = await fetch(url, {
-      method: "GET",
-      headers: buildHeaders({ token: authToken }),
-    });
+  const tryFetch = async (authToken, retries = 3) => {
+    let lastError = null;
+    
+    for (let i = 0; i < retries; i++) {
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          headers: buildHeaders({ token: authToken }),
+          signal: AbortSignal.timeout(30000),
+        });
 
-    if (!response.ok) {
-      return { success: false, response };
-    }
+        if (!response.ok) {
+          return { success: false, response };
+        }
 
-    const contentType = response.headers.get("content-type") || "";
-    if (!contentType.includes("application/json")) {
-      return { success: false, response };
-    }
+        const contentType = response.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+          return { success: false, response };
+        }
 
-    const payload = await response.json();
+        const payload = await response.json();
 
-    if (
-      payload &&
-      typeof payload === "object" &&
-      Number(payload.status) >= 400
-    ) {
-      if (payload.status === 401 || payload.status === 419) {
-        return { success: false, needsRefresh: true, error: payload };
+        if (
+          payload &&
+          typeof payload === "object" &&
+          Number(payload.status) >= 400
+        ) {
+          if (payload.status === 401 || payload.status === 419) {
+            return { success: false, needsRefresh: true, error: payload };
+          }
+          throw new Error(
+            `SMTP config request failed with API status ${payload.status}: ${payload.message || "Unknown API error"}`,
+          );
+        }
+
+        const unwrapped = unwrapSmtpConfig(payload);
+        return { success: true, data: unwrapped };
+      } catch (error) {
+        lastError = error;
+        console.warn(`SMTP fetch attempt ${i + 1}/${retries} failed:`, error.message);
+        
+        if (i < retries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
+        }
       }
-      throw new Error(
-        `SMTP config request failed with API status ${payload.status}: ${payload.message || "Unknown API error"}`,
-      );
     }
 
-    const unwrapped = unwrapSmtpConfig(payload);
-    return { success: true, data: unwrapped };
+    throw lastError || new Error("SMTP fetch failed after retries");
   };
 
   let result = await tryFetch(token);

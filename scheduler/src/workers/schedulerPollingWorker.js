@@ -651,22 +651,38 @@ const getToken = async (db) => {
 };
 
 // fetch db
-const fetchAllDatabases = async () => {
-  try {
-    const response = await axios.get(DB_API);
-    const databases = response.data?.data || [];
-    const dbNames = databases.map((db) => db.DBName).filter(Boolean);
+const fetchAllDatabases = async (retries = 3) => {
+  let lastError = null;
 
-    const uniqueDbNames = [...new Set(dbNames)];
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await axios.get(DB_API, { timeout: 30000 });
+      const databases = response.data?.data || [];
+      const dbNames = databases.map((db) => db.DBName).filter(Boolean);
 
-    logger.info(`Fetched ${uniqueDbNames.length} databases`, {
-      databases: uniqueDbNames,
-    });
-    return uniqueDbNames;
-  } catch (err) {
-    logger.error("Error fetching databases", { error: err.message });
-    return ["DCCBusinessSuite_mowara_test"];
+      const uniqueDbNames = [...new Set(dbNames)];
+
+      logger.info(`Fetched ${uniqueDbNames.length} databases`, {
+        databases: uniqueDbNames,
+      });
+      return uniqueDbNames;
+    } catch (err) {
+      lastError = err;
+      logger.warn(
+        `Fetch databases attempt ${i + 1}/${retries} failed:`,
+        err.message,
+      );
+
+      if (i < retries - 1) {
+        await sleep(2000 * (i + 1));
+      }
+    }
   }
+
+  logger.error("Error fetching databases after retries", {
+    error: lastError?.message,
+  });
+  return ["DCCBusinessSuite_mowara_test"];
 };
 
 //parser
@@ -718,6 +734,11 @@ const parseScheduleDetails = (details, tz = "UTC") => {
   );
 
   if (advanced) {
+    logger.info("=== PARSE SCHEDULE DETAILS DEBUG ===", {
+      details,
+      advancedGroups: advanced.slice(0),
+    });
+
     let everyDays = advanced[1] ? Number(advanced[1]) : 1;
     // let everyDays = Number(advanced[1]);
     let everyIntervalAmount = Number(advanced[2]);
@@ -1186,7 +1207,6 @@ const startSchedulerPolling = () => {
       logger.error("Scheduler error", { error: err.message, stack: err.stack });
     }
   }, POLL_INTERVAL);
-  return worker;
 };
 
 module.exports = { startSchedulerPolling };

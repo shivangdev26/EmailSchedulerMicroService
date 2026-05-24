@@ -1400,6 +1400,18 @@ const startEmailWorker = () => {
               ? dayjs(advanced.endDate).tz(tz)
               : null;
 
+            logger.info("=== ADVANCED EMAIL DEBUG ===", {
+              actionId: currentAction.id,
+              timezone: tz,
+              nowInTz: now.format(),
+              startDate: startDate.format(),
+              endDate: endDate ? endDate.format() : null,
+              startH: advanced.startH,
+              startM: advanced.startM,
+              endH: advanced.endH,
+              endM: advanced.endM,
+            });
+
             if (now.isBefore(startDate, "day")) {
               logger.info("Skipping advanced email: before start date", {
                 actionId: currentAction.id,
@@ -1416,6 +1428,11 @@ const startEmailWorker = () => {
             const daysSinceStart = now
               .startOf("day")
               .diff(startDate.startOf("day"), "day");
+            logger.info("Days since start", {
+              actionId: currentAction.id,
+              daysSinceStart,
+              everyDays: advanced.everyDays,
+            });
             if (
               advanced.everyDays > 1 &&
               daysSinceStart % advanced.everyDays !== 0
@@ -1432,6 +1449,13 @@ const startEmailWorker = () => {
             const endTotalMins =
               (advanced.endH ?? 23) * 60 + (advanced.endM ?? 59);
 
+            logger.info("Time window check", {
+              actionId: currentAction.id,
+              currentTimeInMins,
+              startTotalMins,
+              endTotalMins,
+            });
+
             let shouldSkip;
             if (startTotalMins <= endTotalMins) {
               shouldSkip =
@@ -1442,6 +1466,11 @@ const startEmailWorker = () => {
                 currentTimeInMins > endTotalMins &&
                 currentTimeInMins < startTotalMins;
             }
+
+            logger.info("Should skip?", {
+              actionId: currentAction.id,
+              shouldSkip,
+            });
 
             if (shouldSkip) {
               logger.info("Skipping advanced email: outside time window", {
