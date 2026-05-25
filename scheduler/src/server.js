@@ -389,7 +389,31 @@
 
 // module.exports = { app, server, emailQueue, connection };
 
+// ─── CRASH LOGGING (must be first, before ANY other require) ──────────────────
+const fs = require("fs");
 const path = require("path");
+
+const crashLog = path.join(__dirname, "crash.log");
+
+const writeCrashLog = (label, err) => {
+  try {
+    fs.appendFileSync(
+      crashLog,
+      `[${new Date().toISOString()}] ${label}\nMessage: ${err?.message || err}\nStack: ${err?.stack || "none"}\n\n`,
+    );
+  } catch (_) {}
+};
+
+// Single uncaughtException handler — sync only, no async
+process.on("uncaughtException", (err) => {
+  writeCrashLog("UNCAUGHT EXCEPTION", err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  writeCrashLog("UNHANDLED REJECTION", reason);
+});
+
+// ─── NOW load everything else ─────────────────────────────────────────────────
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const express = require("express");

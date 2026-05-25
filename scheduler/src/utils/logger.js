@@ -61,48 +61,30 @@
 // }
 
 // module.exports = logger;
-
 const winston = require("winston");
 const path = require("path");
 const fs = require("fs");
 
-// Better path
-const logsDir = path.join(__dirname, "../logs");
-// or: const logsDir = path.resolve(process.cwd(), "logs");
-
-console.log("=== LOGGER STARTING ===");
-console.log("__dirname:", __dirname);
-console.log("process.cwd():", process.cwd());
-console.log("logsDir:", logsDir);
+const logsDir = path.join(__dirname, "..", "logs");
 
 try {
   if (!fs.existsSync(logsDir)) {
     fs.mkdirSync(logsDir, { recursive: true });
-    console.log("Created logs directory");
-  } else {
-    console.log("Logs directory already exists");
   }
 } catch (e) {
-  console.error("Error with logs directory:", e.message);
+  console.error("[logger] Cannot create logs dir:", e.message);
 }
 
+const transports = [
+  new winston.transports.Console({
+    format: winston.format.simple(),
+  }),
+];
+
+// Only add file transports if the directory is writable
 try {
-  fs.appendFileSync(
-    path.join(logsDir, "test.txt"),
-    `Server started at ${new Date().toISOString()}\n`,
-  );
-  console.log("Created test file");
-} catch (e) {
-  console.error("Error creating test file:", e.message);
-}
-
-const logger = winston.createLogger({
-  level: "debug", // temporarily use debug
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.json(),
-  ),
-  transports: [
+  fs.accessSync(logsDir, fs.constants.W_OK);
+  transports.push(
     new winston.transports.File({
       filename: path.join(logsDir, "error.log"),
       level: "error",
@@ -110,21 +92,23 @@ const logger = winston.createLogger({
     new winston.transports.File({
       filename: path.join(logsDir, "combined.log"),
     }),
-    new winston.transports.Console({
-      format: winston.format.simple(),
-    }),
-  ],
+  );
+} catch (e) {
+  console.error(
+    "[logger] Logs dir not writable, file logging disabled:",
+    e.message,
+  );
+}
+
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || "info",
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json(),
+  ),
+  transports,
   exitOnError: false,
-});
-
-logger.transports.forEach((transport) => {
-  transport.on("error", (err) => {
-    console.error("Logger transport error:", err.message);
-  });
-});
-
-logger.info("Logger initialized", {
-  timestamp: new Date().toISOString(),
 });
 
 module.exports = logger;
