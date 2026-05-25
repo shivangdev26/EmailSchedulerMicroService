@@ -389,31 +389,517 @@
 
 // module.exports = { app, server, emailQueue, connection };
 
-// ─── CRASH LOGGING (must be first, before ANY other require) ──────────────────
-const fs = require("fs");
+//////////////////////////II/////////////////////////////////////////////////
+// // ─── CRASH LOGGING (must be first, before ANY other require) ──────────────────
+// const fs = require("fs");
+// const path = require("path");
+
+// const crashLog = path.join(__dirname, "crash.log");
+
+// const writeCrashLog = (label, err) => {
+//   try {
+//     fs.appendFileSync(
+//       crashLog,
+//       `[${new Date().toISOString()}] ${label}\nMessage: ${err?.message || err}\nStack: ${err?.stack || "none"}\n\n`,
+//     );
+//   } catch (_) {}
+// };
+
+// // Single uncaughtException handler — sync only, no async
+// process.on("uncaughtException", (err) => {
+//   writeCrashLog("UNCAUGHT EXCEPTION", err);
+// });
+
+// process.on("unhandledRejection", (reason) => {
+//   writeCrashLog("UNHANDLED REJECTION", reason);
+// });
+
+// // ─── NOW load everything else ─────────────────────────────────────────────────
+// require("dotenv").config({ path: path.join(__dirname, ".env") });
+
+// const express = require("express");
+// const cors = require("cors");
+// const routes = require("./routes/index");
+// const responseHandler = require("./utils/responseMiddleware.js");
+// const cookieParser = require("cookie-parser");
+// const errorHandler = require("./utils/errorMiddleware.js");
+// const { Queue } = require("bullmq");
+// const IORedis = require("ioredis");
+// const logger = require("./utils/logger");
+
+// // ─── State ────────────────────────────────────────────────────────────────────
+// let workersStarted = false;
+// let cronJobsInitialized = false;
+// let isShuttingDown = false;
+// let redisConnectionAttempts = 0;
+// let workerHealthCheckInterval = null;
+
+// const activeIntervals = [];
+// const activeTimeouts = [];
+// let emailWorker = null;
+// let schedulerPollingWorker = null;
+
+// // ─── Timer Helpers ─────────────────────────────────────────────────────────────
+// const trackInterval = (intervalId) => {
+//   activeIntervals.push(intervalId);
+//   return intervalId;
+// };
+// const trackTimeout = (timeoutId) => {
+//   activeTimeouts.push(timeoutId);
+//   return timeoutId;
+// };
+
+// const clearAllTimers = () => {
+//   logger.info("Clearing all intervals and timeouts...");
+//   activeIntervals.forEach((id) => {
+//     try {
+//       clearInterval(id);
+//     } catch (e) {}
+//   });
+//   activeTimeouts.forEach((id) => {
+//     try {
+//       clearTimeout(id);
+//     } catch (e) {}
+//   });
+//   activeIntervals.length = 0;
+//   activeTimeouts.length = 0;
+// };
+
+// // ─── Redis ────────────────────────────────────────────────────────────────────
+// const createRedisConnection = () => {
+//   const connection = new IORedis({
+//     host: process.env.REDIS_HOST || "127.0.0.1",
+//     port: process.env.REDIS_PORT || 6379,
+//     maxRetriesPerRequest: null,
+//     // IMPORTANT: longer retry window for IIS recycling scenarios
+//     retryStrategy: (times) => {
+//       if (isShuttingDown) return null;
+//       const delay = Math.min(times * 100, 5000); // up to 5s between retries
+//       logger.warn(
+//         `Redis reconnection attempt ${times}, retrying in ${delay}ms`,
+//       );
+//       return delay;
+//     },
+//     enableReadyCheck: true,
+//     connectTimeout: 10000,
+//     lazyConnect: false,
+//   });
+
+//   connection.on("error", (err) => {
+//     if (!isShuttingDown) logger.error("Redis error", { error: err.message });
+//   });
+//   connection.on("connect", () => {
+//     logger.info("Redis connected");
+//     redisConnectionAttempts = 0;
+//   });
+//   connection.on("ready", () => {
+//     logger.info("Redis ready");
+//   });
+//   connection.on("close", () => {
+//     if (!isShuttingDown) logger.warn("Redis connection closed");
+//   });
+//   connection.on("reconnecting", () => {
+//     if (!isShuttingDown)
+//       logger.warn(`Redis reconnecting... attempt ${++redisConnectionAttempts}`);
+//   });
+
+//   return connection;
+// };
+
+// // // ─── Worker Management ────────────────────────────────────────────────────────
+// // /**
+// //  * Checks if a BullMQ worker is alive.
+// //  * A worker is "alive" if it exists, is not closing, and its Redis client is connected.
+// //  */
+// // const isWorkerAlive = (worker) => {
+// //   if (!worker) return false;
+// //   try {
+// //     // BullMQ workers expose .closing and the underlying connection state
+// //     if (worker.closing) return false;
+// //     const redisClient = worker.opts?.connection;
+// //     if (redisClient && redisClient.status === "end") return false;
+// //     return true;
+// //   } catch {
+// //     return false;
+// //   }
+// // };
+
+// // const stopWorker = async (worker, name) => {
+// //   if (!worker) return;
+// //   try {
+// //     logger.info(`Stopping ${name}...`);
+// //     await worker.close();
+// //     logger.info(`${name} stopped`);
+// //   } catch (e) {
+// //     logger.warn(`Error stopping ${name}`, { error: e.message });
+// //   }
+// // };
+
+// // /**
+// //  * Core function: start (or restart) both workers.
+// //  * Safe to call multiple times — stops existing workers first.
+// //  */
+// // const startWorkers = async () => {
+// //   if (isShuttingDown) return;
+
+// //   const { startEmailWorker } = require("./workers/emailWorker");
+// //   const { startSchedulerPolling } = require("./workers/schedulerPollingWorker");
+
+// //   // Stop existing workers cleanly before restarting
+// //   if (emailWorker) {
+// //     await stopWorker(emailWorker, "emailWorker");
+// //     emailWorker = null;
+// //   }
+// //   if (schedulerPollingWorker) {
+// //     await stopWorker(schedulerPollingWorker, "schedulerPollingWorker");
+// //     schedulerPollingWorker = null;
+// //   }
+
+// //   try {
+// //     emailWorker = startEmailWorker();
+// //     schedulerPollingWorker = startSchedulerPolling();
+// //     workersStarted = true;
+// //     logger.info("Workers started successfully");
+// //   } catch (e) {
+// //     logger.error("Failed to start workers", { error: e.message });
+// //     workersStarted = false;
+// //     // Retry in 15s
+// //     if (!isShuttingDown) {
+// //       trackTimeout(setTimeout(startWorkers, 15000));
+// //     }
+// //   }
+// // };
+
+// // /**
+// //  * Periodic health check — runs every 2 minutes.
+// //  * Restarts any dead workers automatically.
+// //  */
+// // const workerHealthCheck = async () => {
+// //   if (isShuttingDown) return;
+
+// //   const emailAlive = isWorkerAlive(emailWorker);
+// //   const schedulerAlive = isWorkerAlive(schedulerPollingWorker);
+
+// //   logger.info("Worker health check", { emailAlive, schedulerAlive });
+
+// //   if (!emailAlive || !schedulerAlive) {
+// //     logger.warn("One or more workers are dead — restarting...", {
+// //       emailAlive,
+// //       schedulerAlive,
+// //     });
+// //     await startWorkers();
+// //   }
+// // };
+
+// // ─── Worker Management ────────────────────────────────────────────────────────
+// /**
+//  * Checks if a worker is alive.
+//  * Handles both BullMQ workers and custom scheduler workers.
+//  */
+// const isWorkerAlive = (worker) => {
+//   if (!worker) return false;
+
+//   try {
+//     // Handle scheduler polling worker (custom object with intervalId)
+//     if (worker.intervalId !== undefined) {
+//       return worker.isAlive ? worker.isAlive() : true;
+//     }
+
+//     // Handle BullMQ worker (email worker)
+//     if (worker.closing) return false;
+//     const redisClient = worker.opts?.connection;
+//     if (redisClient && redisClient.status === "end") return false;
+//     return true;
+//   } catch {
+//     return false;
+//   }
+// };
+
+// const stopWorker = async (worker, name) => {
+//   if (!worker) return;
+
+//   try {
+//     logger.info(`Stopping ${name}...`);
+
+//     // Handle scheduler worker (has close() method)
+//     if (worker.close && typeof worker.close === "function") {
+//       await worker.close();
+//     }
+//     // Handle BullMQ worker
+//     else if (worker.opts) {
+//       await worker.close();
+//     }
+
+//     logger.info(`${name} stopped`);
+//   } catch (e) {
+//     logger.warn(`Error stopping ${name}`, { error: e.message });
+//   }
+// };
+
+// /**
+//  * Core function: start (or restart) both workers.
+//  * Safe to call multiple times — stops existing workers first.
+//  */
+// const startWorkers = async () => {
+//   if (isShuttingDown) return;
+
+//   const { startEmailWorker } = require("./workers/emailWorker");
+//   const { startSchedulerPolling } = require("./workers/schedulerPollingWorker");
+
+//   // Stop existing workers cleanly before restarting
+//   if (emailWorker) {
+//     await stopWorker(emailWorker, "emailWorker");
+//     emailWorker = null;
+//   }
+//   if (schedulerPollingWorker) {
+//     await stopWorker(schedulerPollingWorker, "schedulerPollingWorker");
+//     schedulerPollingWorker = null;
+//   }
+
+//   try {
+//     emailWorker = startEmailWorker();
+//     schedulerPollingWorker = startSchedulerPolling();
+//     workersStarted = true;
+//     logger.info("Workers started successfully", {
+//       emailWorkerType: emailWorker?.constructor?.name || "unknown",
+//       schedulerWorkerType: schedulerPollingWorker?.intervalId
+//         ? "CustomScheduler"
+//         : "unknown",
+//     });
+//   } catch (e) {
+//     logger.error("Failed to start workers", { error: e.message });
+//     workersStarted = false;
+//     // Retry in 15s
+//     if (!isShuttingDown) {
+//       trackTimeout(setTimeout(startWorkers, 15000));
+//     }
+//   }
+// };
+
+// /**
+//  * Periodic health check — runs every 2 minutes.
+//  * Restarts any dead workers automatically.
+//  */
+// const workerHealthCheck = async () => {
+//   if (isShuttingDown) return;
+
+//   const emailAlive = isWorkerAlive(emailWorker);
+//   const schedulerAlive = isWorkerAlive(schedulerPollingWorker);
+
+//   logger.info("Worker health check", {
+//     emailAlive,
+//     schedulerAlive,
+//     emailWorkerExists: !!emailWorker,
+//     schedulerWorkerExists: !!schedulerPollingWorker,
+//   });
+
+//   if (!emailAlive || !schedulerAlive) {
+//     logger.warn("One or more workers are dead — restarting...", {
+//       emailAlive,
+//       schedulerAlive,
+//     });
+//     await startWorkers();
+//   }
+// };
+// // ─── Process-level Error Handlers ─────────────────────────────────────────────
+// process.on("uncaughtException", async (err) => {
+//   logger.error("UNCAUGHT EXCEPTION", {
+//     message: err.message,
+//     stack: err.stack,
+//   });
+//   if (!isShuttingDown) {
+//     trackTimeout(
+//       setTimeout(async () => {
+//         if (!isShuttingDown) {
+//           logger.info("Restarting workers after uncaughtException...");
+//           await startWorkers();
+//         }
+//       }, 5000),
+//     );
+//   }
+// });
+
+// process.on("unhandledRejection", (reason) => {
+//   logger.error("UNHANDLED REJECTION", {
+//     reason: reason?.message || reason,
+//     stack: reason?.stack,
+//   });
+// });
+
+// // ─── App Setup ────────────────────────────────────────────────────────────────
+// logger.info("Loading app...");
+
+// const connection = createRedisConnection();
+// const emailQueueName = "email-scheduler";
+// const emailQueue = new Queue(emailQueueName, {
+//   connection,
+//   defaultJobOptions: { removeOnComplete: false, removeOnFail: false },
+// });
+
+// const app = express();
+
+// app.use(
+//   express.json({
+//     limit: "10mb",
+//     verify: (req, res, buf) => {
+//       logger.debug(`Request size: ${buf.length} bytes`);
+//     },
+//   }),
+// );
+// app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+// app.use(cookieParser());
+// app.use(responseHandler);
+// app.use("/api", routes);
+// app.use(errorHandler);
+
+// // ─── Cron Jobs ─────────────────────────────────────────────────────────────────
+// const initializeCronJobs = async () => {
+//   if (isShuttingDown) return;
+
+//   try {
+//     logger.info("Initializing BullMQ scheduler jobs...");
+
+//     await emailQueue.upsertJobScheduler(
+//       "daily-email-job",
+//       {
+//         pattern: process.env.EMAIL_SCHEDULER_PATTERN || "0 0 18 * * *",
+//         tz: process.env.EMAIL_SCHEDULER_TIMEZONE || "Asia/Kolkata",
+//       },
+//       { name: "send-daily-email", data: { source: "bullmq-cron" } },
+//     );
+
+//     await emailQueue.upsertJobScheduler(
+//       "check-email-queue-job",
+//       {
+//         pattern: "*/5 * * * *",
+//         tz: process.env.EMAIL_SCHEDULER_TIMEZONE || "Asia/Kolkata",
+//       },
+//       { name: "check-email-queue-status", data: { source: "bullmq-cron" } },
+//     );
+
+//     logger.info("BullMQ scheduler jobs created successfully");
+//     cronJobsInitialized = true;
+//   } catch (error) {
+//     logger.error("Failed to initialize BullMQ cron jobs", {
+//       error: error.message,
+//     });
+//     if (!cronJobsInitialized && !isShuttingDown) {
+//       logger.info("Retrying cron job initialization in 10 seconds...");
+//       trackTimeout(setTimeout(initializeCronJobs, 10000));
+//     }
+//   }
+// };
+
+// const verifyAndRestartServices = async () => {
+//   if (isShuttingDown) return;
+//   try {
+//     logger.info("Verifying services...");
+//     if (!cronJobsInitialized) {
+//       logger.warn("Cron jobs not initialized — reinitializing...");
+//       await initializeCronJobs();
+//     } else {
+//       const repeatableJobs = await emailQueue.getRepeatableJobs();
+//       logger.info("Repeatable jobs verified", { count: repeatableJobs.length });
+//     }
+//     // Also run a worker health check here
+//     await workerHealthCheck();
+//   } catch (error) {
+//     logger.error("Service verification failed", { error: error.message });
+//   }
+// };
+
+// // ─── Server ───────────────────────────────────────────────────────────────────
+// logger.info("App loaded. Starting HTTP server...");
+
+// const PORT = process.env.PORT || 5000;
+// app.set("trust proxy", true);
+// let server = null;
+
+// // ─── Graceful Shutdown ─────────────────────────────────────────────────────────
+// const gracefulShutdown = async (signal) => {
+//   if (isShuttingDown) {
+//     logger.warn("Already shutting down, ignoring:", signal);
+//     return;
+//   }
+//   isShuttingDown = true;
+//   logger.info(`${signal} received. Starting graceful shutdown...`);
+
+//   clearAllTimers();
+
+//   const forceExit = trackTimeout(
+//     setTimeout(() => {
+//       logger.error("Forced shutdown after timeout");
+//       process.exit(1);
+//     }, 30000),
+//   );
+
+//   try {
+//     if (server) await new Promise((res) => server.close(res));
+//     await stopWorker(emailWorker, "emailWorker");
+//     await stopWorker(schedulerPollingWorker, "schedulerPollingWorker");
+//     await emailQueue.close();
+//     await connection.quit();
+//     clearTimeout(forceExit);
+//     logger.info("Graceful shutdown complete");
+//     process.exit(0);
+//   } catch (err) {
+//     logger.error("Error during shutdown", { error: err.message });
+//     process.exit(1);
+//   }
+// };
+
+// // ─── Boot ─────────────────────────────────────────────────────────────────────
+// server = app.listen(PORT, "0.0.0.0", async () => {
+//   server.keepAliveTimeout = 65000;
+//   server.headersTimeout = 66000;
+//   server.maxConnections = 1000;
+
+//   logger.info(`Server running on http://localhost:${PORT}`);
+
+//   // Start workers
+//   await startWorkers();
+
+//   // Initialize cron jobs
+//   await initializeCronJobs();
+
+//   // ── Health check every 2 minutes: auto-restart dead workers ──
+//   trackInterval(setInterval(workerHealthCheck, 2 * 60 * 1000));
+
+//   // ── Full service verification every hour ──
+//   trackInterval(setInterval(verifyAndRestartServices, 60 * 60 * 1000));
+
+//   // ── First check after 30 seconds (catches IIS startup race conditions) ──
+//   trackTimeout(setTimeout(verifyAndRestartServices, 30000));
+
+//   // ── IISNode-specific keep-alive ──
+//   const isIISNode = typeof process.env.IISNODE_VERSION !== "undefined";
+//   if (isIISNode) {
+//     logger.info("Running under IISNode — keep-alive active");
+//     trackInterval(
+//       setInterval(() => {
+//         if (!isShuttingDown) logger.debug("IISNode keep-alive ping");
+//       }, 30000),
+//     );
+//   }
+// });
+
+// // ─── Signal Handlers ──────────────────────────────────────────────────────────
+// process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+// process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+// process.on("SIGBREAK", () => gracefulShutdown("SIGBREAK"));
+// process.on("message", (msg) => {
+//   if (msg === "shutdown") gracefulShutdown("IIS_SHUTDOWN");
+// });
+
+// if (process.platform === "win32") {
+//   require("readline")
+//     .createInterface({ input: process.stdin, output: process.stdout })
+//     .on("SIGINT", () => process.emit("SIGINT"));
+// }
+
+// module.exports = { app, server, emailQueue, connection };
+
 const path = require("path");
-
-const crashLog = path.join(__dirname, "crash.log");
-
-const writeCrashLog = (label, err) => {
-  try {
-    fs.appendFileSync(
-      crashLog,
-      `[${new Date().toISOString()}] ${label}\nMessage: ${err?.message || err}\nStack: ${err?.stack || "none"}\n\n`,
-    );
-  } catch (_) {}
-};
-
-// Single uncaughtException handler — sync only, no async
-process.on("uncaughtException", (err) => {
-  writeCrashLog("UNCAUGHT EXCEPTION", err);
-});
-
-process.on("unhandledRejection", (reason) => {
-  writeCrashLog("UNHANDLED REJECTION", reason);
-});
-
-// ─── NOW load everything else ─────────────────────────────────────────────────
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const express = require("express");
@@ -426,23 +912,16 @@ const { Queue } = require("bullmq");
 const IORedis = require("ioredis");
 const logger = require("./utils/logger");
 
-// ─── State ────────────────────────────────────────────────────────────────────
-let workersStarted = false;
-let cronJobsInitialized = false;
 let isShuttingDown = false;
 let redisConnectionAttempts = 0;
-let workerHealthCheckInterval = null;
-
 const activeIntervals = [];
 const activeTimeouts = [];
-let emailWorker = null;
-let schedulerPollingWorker = null;
 
-// ─── Timer Helpers ─────────────────────────────────────────────────────────────
 const trackInterval = (intervalId) => {
   activeIntervals.push(intervalId);
   return intervalId;
 };
+
 const trackTimeout = (timeoutId) => {
   activeTimeouts.push(timeoutId);
   return timeoutId;
@@ -464,16 +943,14 @@ const clearAllTimers = () => {
   activeTimeouts.length = 0;
 };
 
-// ─── Redis ────────────────────────────────────────────────────────────────────
 const createRedisConnection = () => {
   const connection = new IORedis({
     host: process.env.REDIS_HOST || "127.0.0.1",
     port: process.env.REDIS_PORT || 6379,
     maxRetriesPerRequest: null,
-    // IMPORTANT: longer retry window for IIS recycling scenarios
     retryStrategy: (times) => {
       if (isShuttingDown) return null;
-      const delay = Math.min(times * 100, 5000); // up to 5s between retries
+      const delay = Math.min(times * 100, 5000);
       logger.warn(
         `Redis reconnection attempt ${times}, retrying in ${delay}ms`,
       );
@@ -505,217 +982,11 @@ const createRedisConnection = () => {
   return connection;
 };
 
-// // ─── Worker Management ────────────────────────────────────────────────────────
-// /**
-//  * Checks if a BullMQ worker is alive.
-//  * A worker is "alive" if it exists, is not closing, and its Redis client is connected.
-//  */
-// const isWorkerAlive = (worker) => {
-//   if (!worker) return false;
-//   try {
-//     // BullMQ workers expose .closing and the underlying connection state
-//     if (worker.closing) return false;
-//     const redisClient = worker.opts?.connection;
-//     if (redisClient && redisClient.status === "end") return false;
-//     return true;
-//   } catch {
-//     return false;
-//   }
-// };
-
-// const stopWorker = async (worker, name) => {
-//   if (!worker) return;
-//   try {
-//     logger.info(`Stopping ${name}...`);
-//     await worker.close();
-//     logger.info(`${name} stopped`);
-//   } catch (e) {
-//     logger.warn(`Error stopping ${name}`, { error: e.message });
-//   }
-// };
-
-// /**
-//  * Core function: start (or restart) both workers.
-//  * Safe to call multiple times — stops existing workers first.
-//  */
-// const startWorkers = async () => {
-//   if (isShuttingDown) return;
-
-//   const { startEmailWorker } = require("./workers/emailWorker");
-//   const { startSchedulerPolling } = require("./workers/schedulerPollingWorker");
-
-//   // Stop existing workers cleanly before restarting
-//   if (emailWorker) {
-//     await stopWorker(emailWorker, "emailWorker");
-//     emailWorker = null;
-//   }
-//   if (schedulerPollingWorker) {
-//     await stopWorker(schedulerPollingWorker, "schedulerPollingWorker");
-//     schedulerPollingWorker = null;
-//   }
-
-//   try {
-//     emailWorker = startEmailWorker();
-//     schedulerPollingWorker = startSchedulerPolling();
-//     workersStarted = true;
-//     logger.info("Workers started successfully");
-//   } catch (e) {
-//     logger.error("Failed to start workers", { error: e.message });
-//     workersStarted = false;
-//     // Retry in 15s
-//     if (!isShuttingDown) {
-//       trackTimeout(setTimeout(startWorkers, 15000));
-//     }
-//   }
-// };
-
-// /**
-//  * Periodic health check — runs every 2 minutes.
-//  * Restarts any dead workers automatically.
-//  */
-// const workerHealthCheck = async () => {
-//   if (isShuttingDown) return;
-
-//   const emailAlive = isWorkerAlive(emailWorker);
-//   const schedulerAlive = isWorkerAlive(schedulerPollingWorker);
-
-//   logger.info("Worker health check", { emailAlive, schedulerAlive });
-
-//   if (!emailAlive || !schedulerAlive) {
-//     logger.warn("One or more workers are dead — restarting...", {
-//       emailAlive,
-//       schedulerAlive,
-//     });
-//     await startWorkers();
-//   }
-// };
-
-// ─── Worker Management ────────────────────────────────────────────────────────
-/**
- * Checks if a worker is alive.
- * Handles both BullMQ workers and custom scheduler workers.
- */
-const isWorkerAlive = (worker) => {
-  if (!worker) return false;
-
-  try {
-    // Handle scheduler polling worker (custom object with intervalId)
-    if (worker.intervalId !== undefined) {
-      return worker.isAlive ? worker.isAlive() : true;
-    }
-
-    // Handle BullMQ worker (email worker)
-    if (worker.closing) return false;
-    const redisClient = worker.opts?.connection;
-    if (redisClient && redisClient.status === "end") return false;
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-const stopWorker = async (worker, name) => {
-  if (!worker) return;
-
-  try {
-    logger.info(`Stopping ${name}...`);
-
-    // Handle scheduler worker (has close() method)
-    if (worker.close && typeof worker.close === "function") {
-      await worker.close();
-    }
-    // Handle BullMQ worker
-    else if (worker.opts) {
-      await worker.close();
-    }
-
-    logger.info(`${name} stopped`);
-  } catch (e) {
-    logger.warn(`Error stopping ${name}`, { error: e.message });
-  }
-};
-
-/**
- * Core function: start (or restart) both workers.
- * Safe to call multiple times — stops existing workers first.
- */
-const startWorkers = async () => {
-  if (isShuttingDown) return;
-
-  const { startEmailWorker } = require("./workers/emailWorker");
-  const { startSchedulerPolling } = require("./workers/schedulerPollingWorker");
-
-  // Stop existing workers cleanly before restarting
-  if (emailWorker) {
-    await stopWorker(emailWorker, "emailWorker");
-    emailWorker = null;
-  }
-  if (schedulerPollingWorker) {
-    await stopWorker(schedulerPollingWorker, "schedulerPollingWorker");
-    schedulerPollingWorker = null;
-  }
-
-  try {
-    emailWorker = startEmailWorker();
-    schedulerPollingWorker = startSchedulerPolling();
-    workersStarted = true;
-    logger.info("Workers started successfully", {
-      emailWorkerType: emailWorker?.constructor?.name || "unknown",
-      schedulerWorkerType: schedulerPollingWorker?.intervalId
-        ? "CustomScheduler"
-        : "unknown",
-    });
-  } catch (e) {
-    logger.error("Failed to start workers", { error: e.message });
-    workersStarted = false;
-    // Retry in 15s
-    if (!isShuttingDown) {
-      trackTimeout(setTimeout(startWorkers, 15000));
-    }
-  }
-};
-
-/**
- * Periodic health check — runs every 2 minutes.
- * Restarts any dead workers automatically.
- */
-const workerHealthCheck = async () => {
-  if (isShuttingDown) return;
-
-  const emailAlive = isWorkerAlive(emailWorker);
-  const schedulerAlive = isWorkerAlive(schedulerPollingWorker);
-
-  logger.info("Worker health check", {
-    emailAlive,
-    schedulerAlive,
-    emailWorkerExists: !!emailWorker,
-    schedulerWorkerExists: !!schedulerPollingWorker,
-  });
-
-  if (!emailAlive || !schedulerAlive) {
-    logger.warn("One or more workers are dead — restarting...", {
-      emailAlive,
-      schedulerAlive,
-    });
-    await startWorkers();
-  }
-};
-// ─── Process-level Error Handlers ─────────────────────────────────────────────
-process.on("uncaughtException", async (err) => {
+process.on("uncaughtException", (err) => {
   logger.error("UNCAUGHT EXCEPTION", {
     message: err.message,
     stack: err.stack,
   });
-  if (!isShuttingDown) {
-    trackTimeout(
-      setTimeout(async () => {
-        if (!isShuttingDown) {
-          logger.info("Restarting workers after uncaughtException...");
-          await startWorkers();
-        }
-      }, 5000),
-    );
-  }
 });
 
 process.on("unhandledRejection", (reason) => {
@@ -725,7 +996,6 @@ process.on("unhandledRejection", (reason) => {
   });
 });
 
-// ─── App Setup ────────────────────────────────────────────────────────────────
 logger.info("Loading app...");
 
 const connection = createRedisConnection();
@@ -751,70 +1021,6 @@ app.use(responseHandler);
 app.use("/api", routes);
 app.use(errorHandler);
 
-// ─── Cron Jobs ─────────────────────────────────────────────────────────────────
-const initializeCronJobs = async () => {
-  if (isShuttingDown) return;
-
-  try {
-    logger.info("Initializing BullMQ scheduler jobs...");
-
-    await emailQueue.upsertJobScheduler(
-      "daily-email-job",
-      {
-        pattern: process.env.EMAIL_SCHEDULER_PATTERN || "0 0 18 * * *",
-        tz: process.env.EMAIL_SCHEDULER_TIMEZONE || "Asia/Kolkata",
-      },
-      { name: "send-daily-email", data: { source: "bullmq-cron" } },
-    );
-
-    await emailQueue.upsertJobScheduler(
-      "check-email-queue-job",
-      {
-        pattern: "*/5 * * * *",
-        tz: process.env.EMAIL_SCHEDULER_TIMEZONE || "Asia/Kolkata",
-      },
-      { name: "check-email-queue-status", data: { source: "bullmq-cron" } },
-    );
-
-    logger.info("BullMQ scheduler jobs created successfully");
-    cronJobsInitialized = true;
-  } catch (error) {
-    logger.error("Failed to initialize BullMQ cron jobs", {
-      error: error.message,
-    });
-    if (!cronJobsInitialized && !isShuttingDown) {
-      logger.info("Retrying cron job initialization in 10 seconds...");
-      trackTimeout(setTimeout(initializeCronJobs, 10000));
-    }
-  }
-};
-
-const verifyAndRestartServices = async () => {
-  if (isShuttingDown) return;
-  try {
-    logger.info("Verifying services...");
-    if (!cronJobsInitialized) {
-      logger.warn("Cron jobs not initialized — reinitializing...");
-      await initializeCronJobs();
-    } else {
-      const repeatableJobs = await emailQueue.getRepeatableJobs();
-      logger.info("Repeatable jobs verified", { count: repeatableJobs.length });
-    }
-    // Also run a worker health check here
-    await workerHealthCheck();
-  } catch (error) {
-    logger.error("Service verification failed", { error: error.message });
-  }
-};
-
-// ─── Server ───────────────────────────────────────────────────────────────────
-logger.info("App loaded. Starting HTTP server...");
-
-const PORT = process.env.PORT || 5000;
-app.set("trust proxy", true);
-let server = null;
-
-// ─── Graceful Shutdown ─────────────────────────────────────────────────────────
 const gracefulShutdown = async (signal) => {
   if (isShuttingDown) {
     logger.warn("Already shutting down, ignoring:", signal);
@@ -834,8 +1040,6 @@ const gracefulShutdown = async (signal) => {
 
   try {
     if (server) await new Promise((res) => server.close(res));
-    await stopWorker(emailWorker, "emailWorker");
-    await stopWorker(schedulerPollingWorker, "schedulerPollingWorker");
     await emailQueue.close();
     await connection.quit();
     clearTimeout(forceExit);
@@ -847,7 +1051,12 @@ const gracefulShutdown = async (signal) => {
   }
 };
 
-// ─── Boot ─────────────────────────────────────────────────────────────────────
+logger.info("App loaded. Starting HTTP server...");
+
+const PORT = process.env.PORT || 5000;
+app.set("trust proxy", true);
+let server = null;
+
 server = app.listen(PORT, "0.0.0.0", async () => {
   server.keepAliveTimeout = 65000;
   server.headersTimeout = 66000;
@@ -855,22 +1064,6 @@ server = app.listen(PORT, "0.0.0.0", async () => {
 
   logger.info(`Server running on http://localhost:${PORT}`);
 
-  // Start workers
-  await startWorkers();
-
-  // Initialize cron jobs
-  await initializeCronJobs();
-
-  // ── Health check every 2 minutes: auto-restart dead workers ──
-  trackInterval(setInterval(workerHealthCheck, 2 * 60 * 1000));
-
-  // ── Full service verification every hour ──
-  trackInterval(setInterval(verifyAndRestartServices, 60 * 60 * 1000));
-
-  // ── First check after 30 seconds (catches IIS startup race conditions) ──
-  trackTimeout(setTimeout(verifyAndRestartServices, 30000));
-
-  // ── IISNode-specific keep-alive ──
   const isIISNode = typeof process.env.IISNODE_VERSION !== "undefined";
   if (isIISNode) {
     logger.info("Running under IISNode — keep-alive active");
@@ -882,7 +1075,6 @@ server = app.listen(PORT, "0.0.0.0", async () => {
   }
 });
 
-// ─── Signal Handlers ──────────────────────────────────────────────────────────
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGBREAK", () => gracefulShutdown("SIGBREAK"));
