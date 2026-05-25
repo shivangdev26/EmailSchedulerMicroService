@@ -481,15 +481,106 @@ const createRedisConnection = () => {
   return connection;
 };
 
+// // ─── Worker Management ────────────────────────────────────────────────────────
+// /**
+//  * Checks if a BullMQ worker is alive.
+//  * A worker is "alive" if it exists, is not closing, and its Redis client is connected.
+//  */
+// const isWorkerAlive = (worker) => {
+//   if (!worker) return false;
+//   try {
+//     // BullMQ workers expose .closing and the underlying connection state
+//     if (worker.closing) return false;
+//     const redisClient = worker.opts?.connection;
+//     if (redisClient && redisClient.status === "end") return false;
+//     return true;
+//   } catch {
+//     return false;
+//   }
+// };
+
+// const stopWorker = async (worker, name) => {
+//   if (!worker) return;
+//   try {
+//     logger.info(`Stopping ${name}...`);
+//     await worker.close();
+//     logger.info(`${name} stopped`);
+//   } catch (e) {
+//     logger.warn(`Error stopping ${name}`, { error: e.message });
+//   }
+// };
+
+// /**
+//  * Core function: start (or restart) both workers.
+//  * Safe to call multiple times — stops existing workers first.
+//  */
+// const startWorkers = async () => {
+//   if (isShuttingDown) return;
+
+//   const { startEmailWorker } = require("./workers/emailWorker");
+//   const { startSchedulerPolling } = require("./workers/schedulerPollingWorker");
+
+//   // Stop existing workers cleanly before restarting
+//   if (emailWorker) {
+//     await stopWorker(emailWorker, "emailWorker");
+//     emailWorker = null;
+//   }
+//   if (schedulerPollingWorker) {
+//     await stopWorker(schedulerPollingWorker, "schedulerPollingWorker");
+//     schedulerPollingWorker = null;
+//   }
+
+//   try {
+//     emailWorker = startEmailWorker();
+//     schedulerPollingWorker = startSchedulerPolling();
+//     workersStarted = true;
+//     logger.info("Workers started successfully");
+//   } catch (e) {
+//     logger.error("Failed to start workers", { error: e.message });
+//     workersStarted = false;
+//     // Retry in 15s
+//     if (!isShuttingDown) {
+//       trackTimeout(setTimeout(startWorkers, 15000));
+//     }
+//   }
+// };
+
+// /**
+//  * Periodic health check — runs every 2 minutes.
+//  * Restarts any dead workers automatically.
+//  */
+// const workerHealthCheck = async () => {
+//   if (isShuttingDown) return;
+
+//   const emailAlive = isWorkerAlive(emailWorker);
+//   const schedulerAlive = isWorkerAlive(schedulerPollingWorker);
+
+//   logger.info("Worker health check", { emailAlive, schedulerAlive });
+
+//   if (!emailAlive || !schedulerAlive) {
+//     logger.warn("One or more workers are dead — restarting...", {
+//       emailAlive,
+//       schedulerAlive,
+//     });
+//     await startWorkers();
+//   }
+// };
+
 // ─── Worker Management ────────────────────────────────────────────────────────
 /**
- * Checks if a BullMQ worker is alive.
- * A worker is "alive" if it exists, is not closing, and its Redis client is connected.
+ * Checks if a worker is alive.
+ * Handles both BullMQ workers and custom scheduler workers.
  */
 const isWorkerAlive = (worker) => {
   if (!worker) return false;
+
   try {
-    // BullMQ workers expose .closing and the underlying connection state
+    // Handle scheduler polling worker (custom object with intervalId)
+    if (worker.intervalId !== undefined) {
+      return worker.isAlive ? worker.isAlive() : true;
+    }
+
+    // Handle BullMQ worker (email worker)
     if (worker.closing) return false;
     const redisClient = worker.opts?.connection;
     if (redisClient && redisClient.status === "end") return false;
@@ -501,9 +592,19 @@ const isWorkerAlive = (worker) => {
 
 const stopWorker = async (worker, name) => {
   if (!worker) return;
+
   try {
     logger.info(`Stopping ${name}...`);
-    await worker.close();
+
+    // Handle scheduler worker (has close() method)
+    if (worker.close && typeof worker.close === "function") {
+      await worker.close();
+    }
+    // Handle BullMQ worker
+    else if (worker.opts) {
+      await worker.close();
+    }
+
     logger.info(`${name} stopped`);
   } catch (e) {
     logger.warn(`Error stopping ${name}`, { error: e.message });
@@ -534,7 +635,12 @@ const startWorkers = async () => {
     emailWorker = startEmailWorker();
     schedulerPollingWorker = startSchedulerPolling();
     workersStarted = true;
-    logger.info("Workers started successfully");
+    logger.info("Workers started successfully", {
+      emailWorkerType: emailWorker?.constructor?.name || "unknown",
+      schedulerWorkerType: schedulerPollingWorker?.intervalId
+        ? "CustomScheduler"
+        : "unknown",
+    });
   } catch (e) {
     logger.error("Failed to start workers", { error: e.message });
     workersStarted = false;
@@ -555,7 +661,12 @@ const workerHealthCheck = async () => {
   const emailAlive = isWorkerAlive(emailWorker);
   const schedulerAlive = isWorkerAlive(schedulerPollingWorker);
 
-  logger.info("Worker health check", { emailAlive, schedulerAlive });
+  logger.info("Worker health check", {
+    emailAlive,
+    schedulerAlive,
+    emailWorkerExists: !!emailWorker,
+    schedulerWorkerExists: !!schedulerPollingWorker,
+  });
 
   if (!emailAlive || !schedulerAlive) {
     logger.warn("One or more workers are dead — restarting...", {
@@ -565,7 +676,6 @@ const workerHealthCheck = async () => {
     await startWorkers();
   }
 };
-
 // ─── Process-level Error Handlers ─────────────────────────────────────────────
 process.on("uncaughtException", async (err) => {
   logger.error("UNCAUGHT EXCEPTION", {

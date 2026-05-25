@@ -55,22 +55,38 @@
 // };
 
 // // fetch db
-// const fetchAllDatabases = async () => {
-//   try {
-//     const response = await axios.get(DB_API);
-//     const databases = response.data?.data || [];
-//     const dbNames = databases.map((db) => db.DBName).filter(Boolean);
+// const fetchAllDatabases = async (retries = 3) => {
+//   let lastError = null;
 
-//     const uniqueDbNames = [...new Set(dbNames)];
+//   for (let i = 0; i < retries; i++) {
+//     try {
+//       const response = await axios.get(DB_API, { timeout: 30000 });
+//       const databases = response.data?.data || [];
+//       const dbNames = databases.map((db) => db.DBName).filter(Boolean);
 
-//     logger.info(`Fetched ${uniqueDbNames.length} databases`, {
-//       databases: uniqueDbNames,
-//     });
-//     return uniqueDbNames;
-//   } catch (err) {
-//     logger.error("Error fetching databases", { error: err.message });
-//     return ["DCCBusinessSuite_mowara_test"];
+//       const uniqueDbNames = [...new Set(dbNames)];
+
+//       logger.info(`Fetched ${uniqueDbNames.length} databases`, {
+//         databases: uniqueDbNames,
+//       });
+//       return uniqueDbNames;
+//     } catch (err) {
+//       lastError = err;
+//       logger.warn(
+//         `Fetch databases attempt ${i + 1}/${retries} failed:`,
+//         err.message,
+//       );
+
+//       if (i < retries - 1) {
+//         await sleep(2000 * (i + 1));
+//       }
+//     }
 //   }
+
+//   logger.error("Error fetching databases after retries", {
+//     error: lastError?.message,
+//   });
+//   return ["DCCBusinessSuite_mowara_test"];
 // };
 
 // //parser
@@ -122,6 +138,11 @@
 //   );
 
 //   if (advanced) {
+//     logger.info("=== PARSE SCHEDULE DETAILS DEBUG ===", {
+//       details,
+//       advancedGroups: advanced.slice(0),
+//     });
+
 //     let everyDays = advanced[1] ? Number(advanced[1]) : 1;
 //     // let everyDays = Number(advanced[1]);
 //     let everyIntervalAmount = Number(advanced[2]);
@@ -645,7 +666,6 @@ const getToken = async (db) => {
     const token = await getAuthToken(connection, db);
     return token;
   } catch {
-    // logger.warn(`Login failed for database: ${db}`);
     return null;
   }
 };
@@ -721,14 +741,6 @@ const parseScheduleDetails = (details, tz = "UTC") => {
     };
   }
 
-  // const advanced =
-  //   details.match(
-  //     /every\s*(\d+)\s*day\(s\)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*starting on\s*(\d{2})\/(\d{2})\/(\d{4})/i,
-  //   ) ||
-  //   details.match(
-  //     /every\s*(\d+)\s*day\(s\)every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*starting on\s*(\d{2})\/(\d{2})\/(\d{4})/i,
-  //   );
-
   const advanced = details.match(
     /every\s*(?:(\d+)\s*day\(s\)|day)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})(?:\s*ending on\s*(\d{2})\/(\d{2})\/(\d{4}))?/i,
   );
@@ -740,7 +752,6 @@ const parseScheduleDetails = (details, tz = "UTC") => {
     });
 
     let everyDays = advanced[1] ? Number(advanced[1]) : 1;
-    // let everyDays = Number(advanced[1]);
     let everyIntervalAmount = Number(advanced[2]);
     let everyIntervalType = advanced[3].toLowerCase();
 
@@ -818,7 +829,6 @@ const parseScheduleFromObject = (scheduleObj, tz = "UTC") => {
       everyMinutes *= 60;
     }
 
-    // Parse starting_at and ending_at to get startH/startM/endH/endM
     let startH = 0,
       startM = 0,
       endH = 23,
@@ -888,325 +898,345 @@ const addRepeatJob = async (payload, cron, jobId) => {
   logger.info(`Scheduled job`, { jobId });
 };
 
-//main
-const startSchedulerPolling = () => {
-  logger.info("Scheduler started");
+//main polling logic
+const pollScheduler = async () => {
+  try {
+    const dbs = await fetchAllDatabases();
 
-  setInterval(async () => {
-    try {
-      const dbs = await fetchAllDatabases();
+    let allTenants = [];
+    let smtpToken = null;
 
-      let allTenants = [];
-      let smtpToken = null;
+    for (let i = 0; i < dbs.length; i += BATCH_SIZE) {
+      const batch = dbs.slice(i, i + BATCH_SIZE);
 
-      for (let i = 0; i < dbs.length; i += BATCH_SIZE) {
-        const batch = dbs.slice(i, i + BATCH_SIZE);
+      const tenants = await Promise.all(
+        batch.map(async (db) => {
+          const token = await getToken(db);
+          if (!token) return null;
 
-        const tenants = await Promise.all(
-          batch.map(async (db) => {
-            const token = await getToken(db);
-            if (!token) return null;
-
-            try {
-              const listRes = await fetchSchedulerActions(undefined, token);
-              logger.debug(`Fetched scheduler actions for database`, {
-                database: db,
-                response: listRes,
-              });
-              if (listRes && !smtpToken) {
-                smtpToken = token;
-                logger.info(`Set SMTP token for database`, { database: db });
-              }
-
-              const actionsWithDetails = await Promise.allSettled(
-                (listRes.raw?.tblData || []).map(async (action) => {
-                  try {
-                    const url = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerAction/${action.id}`;
-                    const headers = buildActionApiHeaders(token);
-                    const response = await axios.get(url, { headers });
-
-                    let actionData = null;
-                    if (
-                      response.data?.data &&
-                      Array.isArray(response.data.data) &&
-                      response.data.data.length > 0
-                    ) {
-                      actionData = response.data.data[0];
-                    } else if (
-                      response.data?.tblData &&
-                      Array.isArray(response.data.tblData) &&
-                      response.data.tblData.length > 0
-                    ) {
-                      actionData = response.data.tblData[0];
-                    }
-
-                    return actionData || action;
-                  } catch (err) {
-                    logger.warn(`Failed to fetch complete details for action`, {
-                      actionId: action.id,
-                      error: err.message,
-                    });
-                    return action;
-                  }
-                }),
-              );
-
-              const validActions = actionsWithDetails
-                .filter((result) => result.status === "fulfilled")
-                .map((result) => result.value);
-
-              logger.info(`Fetched complete actions for database`, {
-                database: db,
-                count: validActions.length,
-              });
-
-              return {
-                db,
-                res: {
-                  ...listRes,
-                  items: validActions,
-                  raw: { ...listRes.raw, tblData: validActions },
-                },
-                token,
-              };
-            } catch {
-              return null;
+          try {
+            const listRes = await fetchSchedulerActions(undefined, token);
+            logger.debug(`Fetched scheduler actions for database`, {
+              database: db,
+              response: listRes,
+            });
+            if (listRes && !smtpToken) {
+              smtpToken = token;
+              logger.info(`Set SMTP token for database`, { database: db });
             }
-          }),
-        );
 
-        const validTenants = tenants.filter(Boolean);
-        allTenants.push(...validTenants);
+            const actionsWithDetails = await Promise.allSettled(
+              (listRes.raw?.tblData || []).map(async (action) => {
+                try {
+                  const url = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerAction/${action.id}`;
+                  const headers = buildActionApiHeaders(token);
+                  const response = await axios.get(url, { headers });
 
-        await sleep(500);
-      }
+                  let actionData = null;
+                  if (
+                    response.data?.data &&
+                    Array.isArray(response.data.data) &&
+                    response.data.data.length > 0
+                  ) {
+                    actionData = response.data.data[0];
+                  } else if (
+                    response.data?.tblData &&
+                    Array.isArray(response.data.tblData) &&
+                    response.data.tblData.length > 0
+                  ) {
+                    actionData = response.data.tblData[0];
+                  }
 
-      const smtp = await fetchSmtpConfig({
-        token: smtpToken,
-        connection,
-        dbName: allTenants.length > 0 ? allTenants[0].db : null,
-      });
+                  return actionData || action;
+                } catch (err) {
+                  logger.warn(`Failed to fetch complete details for action`, {
+                    actionId: action.id,
+                    error: err.message,
+                  });
+                  return action;
+                }
+              }),
+            );
 
-      if (!smtp?.email_address) {
-        logger.warn("No SMTP config found");
-        return;
-      }
+            const validActions = actionsWithDetails
+              .filter((result) => result.status === "fulfilled")
+              .map((result) => result.value);
 
-      const activeJobKeys = new Set();
+            logger.info(`Fetched complete actions for database`, {
+              database: db,
+              count: validActions.length,
+            });
 
-      for (const { db, res } of allTenants) {
-        const actions = res.raw?.tblData || [];
+            return {
+              db,
+              res: {
+                ...listRes,
+                items: validActions,
+                raw: { ...listRes.raw, tblData: validActions },
+              },
+              token,
+            };
+          } catch {
+            return null;
+          }
+        }),
+      );
 
-        for (const action of actions) {
-          logger.info(`Checking action`, {
+      const validTenants = tenants.filter(Boolean);
+      allTenants.push(...validTenants);
+
+      await sleep(500);
+    }
+
+    const smtp = await fetchSmtpConfig({
+      token: smtpToken,
+      connection,
+      dbName: allTenants.length > 0 ? allTenants[0].db : null,
+    });
+
+    if (!smtp?.email_address) {
+      logger.warn("No SMTP config found");
+      return;
+    }
+
+    const activeJobKeys = new Set();
+
+    for (const { db, res } of allTenants) {
+      const actions = res.raw?.tblData || [];
+
+      for (const action of actions) {
+        logger.info(`Checking action`, {
+          actionId: action.id,
+          is_active: action.is_active,
+          database: db,
+        });
+
+        if (action.is_active !== "Y") {
+          logger.info(`Skipping inactive action`, {
             actionId: action.id,
-            is_active: action.is_active,
             database: db,
           });
+          continue;
+        }
+        const to = normalizeRecipients(action.to);
+        if (!to.length) continue;
 
-          if (action.is_active !== "Y") {
-            logger.info(`Skipping inactive action`, {
+        const payload = { action, smtp, db };
+        const tz = action.timezone || "UTC";
+
+        let parsed = null;
+        try {
+          if (action.schedule_details && action.schedule_details.trim()) {
+            parsed = parseScheduleDetails(action.schedule_details, tz);
+          }
+
+          if (
+            !parsed &&
+            action.m_emailer_action_schedule &&
+            action.m_emailer_action_schedule.length > 0
+          ) {
+            for (const scheduleObj of action.m_emailer_action_schedule) {
+              parsed = parseScheduleFromObject(scheduleObj, tz);
+              if (parsed) break;
+            }
+          }
+
+          if (!parsed && action.schedule_time) {
+            const cron = parseScheduleTime(action.schedule_time);
+            if (cron) {
+              parsed = { type: "DAILY", cron };
+            }
+          }
+        } catch (err) {
+          parsed = null;
+        }
+
+        if (parsed) {
+          if (parsed.type === "ONE") {
+            const delay = parsed.date.diff(dayjs.utc());
+            const jobId = `${db}-one-${action.id}-${parsed.date.valueOf()}`;
+            const redisKey = `scheduler:one-time:${jobId}`;
+
+            const alreadyScheduled = await connection.get(redisKey);
+            if (alreadyScheduled) {
+              logger.debug(`One-time job already scheduled`, { jobId });
+              continue;
+            }
+
+            if (delay < -1800000) continue;
+
+            const exists = await emailQueue.getJob(jobId);
+            if (exists) {
+              logger.debug(`One-time job already exists in queue`, { jobId });
+              continue;
+            }
+
+            await emailQueue.add("send-email", payload, {
+              delay: Math.max(delay, 0),
+              jobId,
+              removeOnComplete: true,
+              removeOnFail: true,
+            });
+
+            const ttl = Math.max(
+              86400,
+              Math.floor((parsed.date.valueOf() - Date.now()) / 1000) + 86400,
+            );
+            await connection.set(redisKey, "1", "EX", ttl);
+
+            logger.info(`Scheduled one-time email`, {
+              actionId: action.id,
+              database: db,
+              jobId,
+            });
+            continue;
+          }
+          if (parsed.type === "ADVANCED") {
+            const jobKey = `${db}-adv-${action.id}`;
+            activeJobKeys.add(jobKey);
+            await addRepeatJob(
+              { ...payload, advanced: parsed },
+              `*/${parsed.everyMinutes} * * * *`,
+              jobKey,
+            );
+
+            logger.info(`Scheduled advanced email`, {
               actionId: action.id,
               database: db,
             });
             continue;
           }
-          const to = normalizeRecipients(action.to);
-          if (!to.length) continue;
-
-          const payload = { action, smtp, db };
-          const tz = action.timezone || "UTC";
-
-          let parsed = null;
-          try {
-            if (action.schedule_details && action.schedule_details.trim()) {
-              parsed = parseScheduleDetails(action.schedule_details, tz);
-            }
-
-            if (
-              !parsed &&
-              action.m_emailer_action_schedule &&
-              action.m_emailer_action_schedule.length > 0
-            ) {
-              for (const scheduleObj of action.m_emailer_action_schedule) {
-                parsed = parseScheduleFromObject(scheduleObj, tz);
-                if (parsed) break;
-              }
-            }
-
-            if (!parsed && action.schedule_time) {
-              const cron = parseScheduleTime(action.schedule_time);
-              if (cron) {
-                parsed = { type: "DAILY", cron };
-              }
-            }
-          } catch (err) {
-            parsed = null;
-          }
-
-          if (parsed) {
-            if (parsed.type === "ONE") {
-              const delay = parsed.date.diff(dayjs.utc());
-              const jobId = `${db}-one-${action.id}-${parsed.date.valueOf()}`;
-              const redisKey = `scheduler:one-time:${jobId}`;
-
-              // Check if we've already scheduled this one-time job
-              const alreadyScheduled = await connection.get(redisKey);
-              if (alreadyScheduled) {
-                logger.debug(`One-time job already scheduled`, { jobId });
-                continue;
-              }
-
-              if (delay < -1800000) continue;
-
-              const exists = await emailQueue.getJob(jobId);
-              if (exists) {
-                logger.debug(`One-time job already exists in queue`, { jobId });
-                continue;
-              }
-
-              await emailQueue.add("send-email", payload, {
-                delay: Math.max(delay, 0),
-                jobId,
-                removeOnComplete: true,
-                removeOnFail: true,
-              });
-
-              // Mark the job as scheduled in Redis with TTL set to 24 hours after the scheduled date
-              const ttl = Math.max(
-                86400,
-                Math.floor((parsed.date.valueOf() - Date.now()) / 1000) + 86400,
-              );
-              await connection.set(redisKey, "1", "EX", ttl);
-
-              logger.info(`Scheduled one-time email`, {
-                actionId: action.id,
-                database: db,
-                jobId,
-              });
-              continue;
-            }
-            if (parsed.type === "ADVANCED") {
-              const jobKey = `${db}-adv-${action.id}`;
-              activeJobKeys.add(jobKey);
-              await addRepeatJob(
-                { ...payload, advanced: parsed },
-                `*/${parsed.everyMinutes} * * * *`,
-                jobKey,
-              );
-
-              logger.info(`Scheduled advanced email`, {
-                actionId: action.id,
-                database: db,
-              });
-              continue;
-            }
-            if (parsed.type === "DAILY") {
-              const now = dayjs.utc();
-              let shouldSchedule = true;
-              const startDateMatch =
-                action.schedule_details &&
-                typeof action.schedule_details === "string"
-                  ? action.schedule_details.match(
-                      /starting on (\d{2})\/(\d{2})\/(\d{4})/i,
-                    )
-                  : null;
-              const endDateMatch =
-                action.schedule_details &&
-                typeof action.schedule_details === "string"
-                  ? action.schedule_details.match(
-                      /ending on (\d{2})\/(\d{2})\/(\d{4})/i,
-                    )
-                  : null;
-
-              if (startDateMatch) {
-                const startDate = dayjs
-                  .tz(
-                    `${startDateMatch[3]}-${startDateMatch[2]}-${startDateMatch[1]} 00:00`,
-                    "UTC",
+          if (parsed.type === "DAILY") {
+            const now = dayjs.utc();
+            let shouldSchedule = true;
+            const startDateMatch =
+              action.schedule_details &&
+              typeof action.schedule_details === "string"
+                ? action.schedule_details.match(
+                    /starting on (\d{2})\/(\d{2})\/(\d{4})/i,
                   )
-                  .utc();
-                if (now.isBefore(startDate)) {
-                  shouldSchedule = false;
-                }
-              }
-
-              if (endDateMatch && shouldSchedule) {
-                const endDate = dayjs
-                  .tz(
-                    `${endDateMatch[3]}-${endDateMatch[2]}-${endDateMatch[1]} 23:59`,
-                    "UTC",
+                : null;
+            const endDateMatch =
+              action.schedule_details &&
+              typeof action.schedule_details === "string"
+                ? action.schedule_details.match(
+                    /ending on (\d{2})\/(\d{2})\/(\d{4})/i,
                   )
-                  .utc();
-                if (now.isAfter(endDate)) {
-                  shouldSchedule = false;
-                }
-              }
+                : null;
 
-              if (shouldSchedule) {
-                const jobKey = `${db}-daily-${action.id}`;
-                activeJobKeys.add(jobKey);
-                await addRepeatJob(payload, parsed.cron, jobKey);
+            if (startDateMatch) {
+              const startDate = dayjs
+                .tz(
+                  `${startDateMatch[3]}-${startDateMatch[2]}-${startDateMatch[1]} 00:00`,
+                  "UTC",
+                )
+                .utc();
+              if (now.isBefore(startDate)) {
+                shouldSchedule = false;
               }
-              continue;
             }
-          }
 
-          if (
-            !action.schedule_details ||
-            action.schedule_details.trim() === ""
-          ) {
-            const cron = parseScheduleTime(action.schedule_time);
-            if (cron) {
-              const jobKey = `${db}-fallback-${action.id}`;
+            if (endDateMatch && shouldSchedule) {
+              const endDate = dayjs
+                .tz(
+                  `${endDateMatch[3]}-${endDateMatch[2]}-${endDateMatch[1]} 23:59`,
+                  "UTC",
+                )
+                .utc();
+              if (now.isAfter(endDate)) {
+                shouldSchedule = false;
+              }
+            }
+
+            if (shouldSchedule) {
+              const jobKey = `${db}-daily-${action.id}`;
               activeJobKeys.add(jobKey);
-              await addRepeatJob(payload, cron, jobKey);
-              continue;
+              await addRepeatJob(payload, parsed.cron, jobKey);
             }
+            continue;
+          }
+        }
+
+        if (!action.schedule_details || action.schedule_details.trim() === "") {
+          const cron = parseScheduleTime(action.schedule_time);
+          if (cron) {
+            const jobKey = `${db}-fallback-${action.id}`;
+            activeJobKeys.add(jobKey);
+            await addRepeatJob(payload, cron, jobKey);
+            continue;
           }
         }
       }
-
-      const existingJobs = await emailQueue.getRepeatableJobs();
-      logger.info(`Checking ${existingJobs.length} existing repeatable jobs`, {
-        activeJobKeys: Array.from(activeJobKeys),
-        existingJobKeys: existingJobs.map((j) => j.key),
-      });
-      for (const job of existingJobs) {
-        const jobKey = job.key;
-        if (!jobKey) continue;
-
-        if (
-          job.name === "check-email-queue-status" ||
-          job.name === "send-daily-email"
-        ) {
-          continue;
-        }
-
-        if (
-          jobKey.includes("-adv-") ||
-          jobKey.includes("-daily-") ||
-          jobKey.includes("-fallback-")
-        ) {
-          let isActive = false;
-          for (const activeJobId of activeJobKeys) {
-            if (jobKey.includes(activeJobId)) {
-              isActive = true;
-              break;
-            }
-          }
-          if (!isActive) {
-            logger.info(`Removing inactive job`, { jobKey });
-            await emailQueue.removeRepeatableByKey(job.key);
-          } else {
-            logger.debug(`Keeping active job`, { jobKey });
-          }
-        }
-      }
-    } catch (err) {
-      logger.error("Scheduler error", { error: err.message, stack: err.stack });
     }
-  }, POLL_INTERVAL);
+
+    const existingJobs = await emailQueue.getRepeatableJobs();
+    logger.info(`Checking ${existingJobs.length} existing repeatable jobs`, {
+      activeJobKeys: Array.from(activeJobKeys),
+      existingJobKeys: existingJobs.map((j) => j.key),
+    });
+    for (const job of existingJobs) {
+      const jobKey = job.key;
+      if (!jobKey) continue;
+
+      if (
+        job.name === "check-email-queue-status" ||
+        job.name === "send-daily-email"
+      ) {
+        continue;
+      }
+
+      if (
+        jobKey.includes("-adv-") ||
+        jobKey.includes("-daily-") ||
+        jobKey.includes("-fallback-")
+      ) {
+        let isActive = false;
+        for (const activeJobId of activeJobKeys) {
+          if (jobKey.includes(activeJobId)) {
+            isActive = true;
+            break;
+          }
+        }
+        if (!isActive) {
+          logger.info(`Removing inactive job`, { jobKey });
+          await emailQueue.removeRepeatableByKey(job.key);
+        } else {
+          logger.debug(`Keeping active job`, { jobKey });
+        }
+      }
+    }
+  } catch (err) {
+    logger.error("Scheduler error", { error: err.message, stack: err.stack });
+  }
+};
+
+const startSchedulerPolling = () => {
+  logger.info("Scheduler polling worker starting...");
+
+  const intervalId = setInterval(pollScheduler, POLL_INTERVAL);
+
+  // Run immediately on start
+  pollScheduler().catch((err) => {
+    logger.error("Initial poll failed", { error: err.message });
+  });
+
+  logger.info("Scheduler polling worker started", {
+    pollInterval: POLL_INTERVAL,
+  });
+
+  // ✅ Return an object that server.js can manage
+  return {
+    intervalId,
+    close: async () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        logger.info("Scheduler polling worker stopped");
+      }
+    },
+    isAlive: () => {
+      return intervalId !== null && intervalId !== undefined;
+    },
+  };
 };
 
 module.exports = { startSchedulerPolling };
