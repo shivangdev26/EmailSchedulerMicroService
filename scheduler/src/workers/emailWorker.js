@@ -1406,6 +1406,7 @@ const startEmailWorker = () => {
               nowInTz: now.format(),
               startDate: startDate.format(),
               endDate: endDate ? endDate.format() : null,
+              advanced: advanced, // Log complete advanced object!
               startH: advanced.startH,
               startM: advanced.startM,
               endH: advanced.endH,

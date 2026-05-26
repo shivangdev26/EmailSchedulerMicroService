@@ -193,7 +193,7 @@
 //   return null;
 // };
 
-// const parseScheduleFromObject = (scheduleObj, tz = "UTC") => {
+// const parseScheduleFromObject = (scheduleObj, tz = process.env.EMAIL_SCHEDULER_TIMEZONE || "Asia/Kolkata") => {
 //   if (!scheduleObj) return null;
 
 //   if (
@@ -801,6 +801,10 @@ const parseScheduleDetails = (details, tz = "UTC") => {
 };
 
 const parseScheduleFromObject = (scheduleObj, tz = "UTC") => {
+  logger.info("=== PARSE SCHEDULE FROM OBJECT DEBUG ===", {
+    scheduleObj,
+    timezone: tz,
+  });
   if (!scheduleObj) return null;
 
   if (
