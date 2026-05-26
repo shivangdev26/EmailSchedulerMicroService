@@ -711,7 +711,8 @@ const parseScheduleDetails = (details, tz = "UTC") => {
   if (!details || typeof details !== "string") return null;
 
   const one = details.match(
-    /occurs on (\d{2})\/(\d{2})\/(\d{4}) at (\d{1,2}):(\d{2}) (AM|PM)/i,
+    // /occurs on (\d{2})\/(\d{2})\/(\d{4}) at (\d{1,2}):(\d{2}) (AM|PM)/i,
+    /(?:occurs\s+)?on (\d{2})\/(\d{2})\/(\d{4}) at (\d{1,2}):(\d{2}) (AM|PM)/i,
   );
 
   if (one) {
@@ -726,7 +727,10 @@ const parseScheduleDetails = (details, tz = "UTC") => {
     };
   }
 
-  const daily = details.match(/every day at (\d{1,2}):(\d{2}) (AM|PM)/i);
+  // const daily = details.match(/every day at (\d{1,2}):(\d{2}) (AM|PM)/i);
+  const daily = details.match(
+    /(?:occurs\s+)?every day at (\d{1,2}):(\d{2}) (AM|PM)/i,
+  );
 
   if (daily) {
     let h = +daily[1];
@@ -742,7 +746,8 @@ const parseScheduleDetails = (details, tz = "UTC") => {
   }
 
   const advanced = details.match(
-    /every\s*(?:(\d+)\s*day\(s\)|day)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})(?:\s*ending on\s*(\d{2})\/(\d{2})\/(\d{4}))?/i,
+    // /every\s*(?:(\d+)\s*day\(s\)|day)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})(?:\s*ending on\s*(\d{2})\/(\d{2})\/(\d{4}))?/i,
+    /(?:occurs\s+)?every\s*(?:(\d+)\s*day\(s\)|day)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})(?:\s*ending on\s*(\d{2})\/(\d{2})\/(\d{4}))?/i,
   );
 
   if (advanced) {
@@ -848,7 +853,7 @@ const parseScheduleFromObject = (scheduleObj, tz = "UTC") => {
       endM = endTime.minute();
     }
 
-    return {
+    const parsedAdvanced = {
       type: "ADVANCED",
       everyMinutes,
       startDate: scheduleObj.start_date
@@ -861,6 +866,12 @@ const parseScheduleFromObject = (scheduleObj, tz = "UTC") => {
       endM,
       tz,
     };
+
+    logger.info("=== parseScheduleFromObject final ADVANCED ===", {
+      parsedAdvanced,
+    });
+
+    return parsedAdvanced;
   }
 
   if (scheduleObj.schedule_type === "O" && scheduleObj.one_time) {
@@ -934,7 +945,20 @@ const pollScheduler = async () => {
                 try {
                   const url = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerAction/${action.id}`;
                   const headers = buildActionApiHeaders(token);
+
+                  logger.info(
+                    `=== Fetching complete details for action ${action.id} ===`,
+                    {
+                      url: url,
+                    },
+                  );
+
                   const response = await axios.get(url, { headers });
+
+                  logger.info(`=== Response for action ${action.id} ===`, {
+                    responseStatus: response.status,
+                    responseData: response.data,
+                  });
 
                   let actionData = null;
                   if (
@@ -950,6 +974,14 @@ const pollScheduler = async () => {
                   ) {
                     actionData = response.data.tblData[0];
                   }
+
+                  logger.info(
+                    `=== Final actionData for action ${action.id} ===`,
+                    {
+                      hasScheduleDetails: !!actionData?.schedule_details,
+                      scheduleDetails: actionData?.schedule_details,
+                    },
+                  );
 
                   return actionData || action;
                 } catch (err) {
@@ -1027,11 +1059,26 @@ const pollScheduler = async () => {
 
         const payload = { action, smtp, db };
         const tz = action.timezone || "UTC";
+        logger.info("=== Action timezone ===", {
+          actionId: action.id,
+          timezone: action.timezone,
+          usedTz: tz,
+        });
 
         let parsed = null;
         try {
+          logger.info("=== Action schedule details ===", {
+            actionId: action.id,
+            schedule_details: action.schedule_details,
+            m_emailer_action_schedule: action.m_emailer_action_schedule,
+          });
+
           if (action.schedule_details && action.schedule_details.trim()) {
             parsed = parseScheduleDetails(action.schedule_details, tz);
+            logger.info("=== parseScheduleDetails result ===", {
+              actionId: action.id,
+              parsed: parsed,
+            });
           }
 
           if (
@@ -1039,6 +1086,10 @@ const pollScheduler = async () => {
             action.m_emailer_action_schedule &&
             action.m_emailer_action_schedule.length > 0
           ) {
+            logger.info("=== Falling back to parseScheduleFromObject ===", {
+              actionId: action.id,
+            });
+
             for (const scheduleObj of action.m_emailer_action_schedule) {
               parsed = parseScheduleFromObject(scheduleObj, tz);
               if (parsed) break;
@@ -1052,6 +1103,11 @@ const pollScheduler = async () => {
             }
           }
         } catch (err) {
+          logger.error("=== Error parsing schedule ===", {
+            actionId: action.id,
+            error: err.message,
+            stack: err.stack,
+          });
           parsed = null;
         }
 

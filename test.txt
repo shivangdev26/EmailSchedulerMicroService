@@ -1,15 +1,89 @@
-cd scheduler
-pm2 install pm2-logrotate
+Step-by-Step Guide: Set Up PM2 as Windows Service with NSSM
+Prerequisites
+PM2 installed globally: npm install -g pm2
+Your PM2 processes running and configured
+Administrator access to your Windows machine
+Step 1: Save Your PM2 Process List
+First, make sure all your PM2 processes are running and save the state:
 
-pm2 set pm2-logrotate:max_size 1M
- 
-pm2 set pm2-logrotate:retain 0
- 
-pm2 set pm2-logrotate:workerInterval 60
- 
-pm2 set pm2-logrotate:compress false
- 
-pm2 set pm2-logrotate:rotateInterval "0 * * * * *"
+This creates a dump file at C:\Users\lenovo\.pm2\dump.pm2 that PM2 will use to resurrect processes on startup.
 
-pm2 restart ecosystem.config.js
-pm2 status
+Step 2: Download NSSM
+Go to https://nssm.cc/download
+Download the latest 64-bit version (or 32-bit if you have a 32-bit system)
+Extract the ZIP file to a permanent location, e.g., C:\nssm
+You should now have: C:\nssm\win64\nssm.exe
+
+Step 3: Find Your Node.js Path
+Run this to find where node.exe is installed:
+
+Example output: C:\Program Files\nodejs\node.exe
+
+Step 4: Create the Windows Service
+Open Command Prompt as Administrator and run:
+
+The NSSM GUI will open. Fill in these details:
+
+Application Tab
+Field	             Value
+Path	             Your node.exe path from Step 3 (e.g., C:\Program Files\nodejs\node.exe)
+Startup directory	C:\Users\lenovo\Desktop\EmailSchedulerMicroService\scheduler
+Arguments	         C:\Users\lenovo\AppData\Roaming\npm\node_modules\pm2\bin\pm2 resurrect
+
+Details Tab (Optional)
+Display name: PM2 Email Scheduler Service
+Description: Manages email scheduler background workers
+
+Log on Tab
+Select Local System account
+Check Allow service to interact with desktop (optional, for debugging)
+
+I/O Tab (Recommended)
+Field	          Value
+Output (stdout)	  C:\Users\lenovo\Desktop\EmailSchedulerMicroService\scheduler\logs\pm2-service-out.log
+Error (stderr)	  C:\Users\lenovo\Desktop\EmailSchedulerMicroService\scheduler\logs\pm2-service-error.log
+Click Install service when done.
+
+Step 5: Start the Service
+From Administrator Command Prompt:
+
+Or start it from Windows Services:
+
+Press Win+R, type services.msc
+Find "PM2 Email Scheduler Service"
+Right-click → Start
+
+
+Step 6: Verify Everything is Working
+Check service status:
+
+Check PM2 processes:
+
+You should see all your PM2 processes (email-scheduler-workers, log-cleanup-worker) running!
+
+Managing the Service
+Action	  Command
+Start	  nssm start PM2-EmailScheduler
+Stop	  nssm stop PM2-EmailScheduler
+Restart	  nssm restart PM2-EmailScheduler
+Remove	  nssm remove PM2-EmailScheduler confirm
+Updating   PM2 Processes Later
+If you make changes to ecosystem.config.js:
+
+
+## Updating PM2 Processes Later
+If you make changes to ecosystem.config.js :
+1. Update your processes: pm2 restart ecosystem.config.js
+2. Save the new state: pm2 save
+3. The service will automatically load the new state on next boot
+
+Troubleshooting
+Check service logs in scheduler/logs/pm2-service-out.log and pm2-service-error.log
+Check PM2 logs with pm2 logs
+Verify the node.exe path is correct in NSSM
+Make sure you ran Command Prompt as Administrator
+
+
+
+
+
