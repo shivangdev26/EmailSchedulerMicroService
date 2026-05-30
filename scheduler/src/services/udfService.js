@@ -227,36 +227,33 @@ const executeMultipleQueries = async ({ token, action }) => {
 const replaceQueryPlaceholders = (text, data) => {
   if (!text || !data) return text || "";
   return text.replace(
-    /\{(query_result_\d+|subtitle_query_\d+)\}/g,
+    /\{(query_result_\d+|subtitle_query_\d+|customer_summary|grouped_data|clean_data)\}/g,
     (match, key) => {
       const value = data[key];
       if (value === undefined || value === null) return match;
       if (Array.isArray(value)) {
-        // Format array as HTML table if it's query_result
-        if (key.startsWith("query_result_")) {
-          if (value.length === 0) return "";
-          // Get keys from first item for table headers
-          const keys = Object.keys(value[0]);
-          let tableHtml = "<table border='1' cellpadding='5' cellspacing='0'>";
-          // Add header row
-          tableHtml += "<thead><tr>";
+        // Format array as HTML table
+        if (value.length === 0) return "";
+        // Get keys from first item for table headers
+        const keys = Object.keys(value[0]);
+        let tableHtml = "<table border='1' cellpadding='5' cellspacing='0'>";
+        // Add header row
+        tableHtml += "<thead><tr>";
+        keys.forEach((k) => {
+          tableHtml += `<th>${k}</th>`;
+        });
+        tableHtml += "</tr></thead>";
+        // Add data rows
+        tableHtml += "<tbody>";
+        value.forEach((row) => {
+          tableHtml += "<tr>";
           keys.forEach((k) => {
-            tableHtml += `<th>${k}</th>`;
+            tableHtml += `<td>${row[k] !== null && row[k] !== undefined ? row[k] : ""}</td>`;
           });
-          tableHtml += "</tr></thead>";
-          // Add data rows
-          tableHtml += "<tbody>";
-          value.forEach((row) => {
-            tableHtml += "<tr>";
-            keys.forEach((k) => {
-              tableHtml += `<td>${row[k] !== null && row[k] !== undefined ? row[k] : ""}</td>`;
-            });
-            tableHtml += "</tr>";
-          });
-          tableHtml += "</tbody></table>";
-          return tableHtml;
-        }
-        return JSON.stringify(value);
+          tableHtml += "</tr>";
+        });
+        tableHtml += "</tbody></table>";
+        return tableHtml;
       }
       return String(value);
     },

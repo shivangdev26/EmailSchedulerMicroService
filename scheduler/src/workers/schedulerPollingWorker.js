@@ -712,7 +712,9 @@ const parseScheduleDetails = (details, tz = "UTC") => {
 
   const one = details.match(
     // /occurs on (\d{2})\/(\d{2})\/(\d{4}) at (\d{1,2}):(\d{2}) (AM|PM)/i,
-    /(?:occurs\s+)?on (\d{2})\/(\d{2})\/(\d{4}) at (\d{1,2}):(\d{2}) (AM|PM)/i,
+    // /(?:occurs\s+)?on (\d{2})\/(\d{2})\/(\d{4}) at (\d{1,2}):(\d{2}) (AM|PM)/i,
+
+    /(?:occurs\s*)?on (\d{2})\/(\d{2})\/(\d{4}) at (\d{1,2}):(\d{2}) (AM|PM)/i,
   );
 
   if (one) {
@@ -729,7 +731,7 @@ const parseScheduleDetails = (details, tz = "UTC") => {
 
   // const daily = details.match(/every day at (\d{1,2}):(\d{2}) (AM|PM)/i);
   const daily = details.match(
-    /(?:occurs\s+)?every day at (\d{1,2}):(\d{2}) (AM|PM)/i,
+    /(?:occurs\s*)?every day at (\d{1,2}):(\d{2}) (AM|PM)/i,
   );
 
   if (daily) {
@@ -745,9 +747,56 @@ const parseScheduleDetails = (details, tz = "UTC") => {
     };
   }
 
+  const weekly = details.match(
+    /(?:occurs\s*)?every week on (Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday) at (\d{1,2}):(\d{2}) (AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})(?:\s*ending on\s*(\d{2})\/(\d{2})\/(\d{4}))?/i,
+  );
+
+  if (weekly) {
+    logger.info("=== PARSE SCHEDULE DETAILS DEBUG (WEEKLY) ===", {
+      details,
+      weeklyGroups: weekly.slice(0),
+    });
+
+    const dayMap = {
+      Sunday: 0,
+      Monday: 1,
+      Tuesday: 2,
+      Wednesday: 3,
+      Thursday: 4,
+      Friday: 5,
+      Saturday: 6,
+    };
+
+    let h = Number(weekly[2]);
+    let min = Number(weekly[3]);
+    const p = weekly[4];
+
+    if (p === "PM" && h !== 12) h += 12;
+    if (p === "AM" && h === 12) h = 0;
+
+    const startDate = dayjs.tz(
+      `${weekly[7]}-${weekly[6]}-${weekly[5]} 00:00`,
+      tz,
+    );
+
+    let endDate = null;
+    if (weekly[8] && weekly[9] && weekly[10]) {
+      endDate = dayjs.tz(`${weekly[10]}-${weekly[9]}-${weekly[8]} 23:59`, tz);
+    }
+
+    return {
+      type: "WEEKLY",
+      dayOfWeek: dayMap[weekly[1]],
+      hour: h,
+      minute: min,
+      startDate: startDate.toISOString(),
+      endDate: endDate ? endDate.toISOString() : null,
+      tz,
+    };
+  }
+
   const advanced = details.match(
-    // /every\s*(?:(\d+)\s*day\(s\)|day)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})(?:\s*ending on\s*(\d{2})\/(\d{2})\/(\d{4}))?/i,
-    /(?:occurs\s+)?every\s*(?:(\d+)\s*day\(s\)|day)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})(?:\s*ending on\s*(\d{2})\/(\d{2})\/(\d{4}))?/i,
+    /(?:occurs\s*)?every\s*(?:(\d+)\s*day\(s\)|day)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})(?:\s*ending on\s*(\d{2})\/(\d{2})\/(\d{4}))?/i,
   );
 
   if (advanced) {
@@ -940,8 +989,21 @@ const pollScheduler = async () => {
               logger.info(`Set SMTP token for database`, { database: db });
             }
 
+            logger.info("=== Initial list actions with schedule details ===", {
+              database: db,
+              actions: (listRes.raw?.tblData || []).map((a) => ({
+                id: a.id,
+                hasScheduleDetails: !!a.schedule_details,
+                scheduleDetails: a.schedule_details,
+              })),
+            });
+
             const actionsWithDetails = await Promise.allSettled(
               (listRes.raw?.tblData || []).map(async (action) => {
+                logger.info(`=== Initial action data for ${action.id} ===`, {
+                  hasScheduleDetails: !!action.schedule_details,
+                  scheduleDetails: action.schedule_details,
+                });
                 try {
                   const url = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerAction/${action.id}`;
                   const headers = buildActionApiHeaders(token);
@@ -966,13 +1028,27 @@ const pollScheduler = async () => {
                     Array.isArray(response.data.data) &&
                     response.data.data.length > 0
                   ) {
-                    actionData = response.data.data[0];
+                    actionData = {
+                      ...response.data.data[0],
+                      ...action,
+                      m_emailer_action_schedule:
+                        response.data.data[0].m_emailer_action_schedule,
+                    };
+                    // Explicitly ensure we preserve schedule_details from list action
+                    actionData.schedule_details = action.schedule_details;
                   } else if (
                     response.data?.tblData &&
                     Array.isArray(response.data.tblData) &&
                     response.data.tblData.length > 0
                   ) {
-                    actionData = response.data.tblData[0];
+                    actionData = {
+                      ...response.data.tblData[0],
+                      ...action,
+                      m_emailer_action_schedule:
+                        response.data.tblData[0].m_emailer_action_schedule,
+                    };
+                    // Explicitly ensure we preserve schedule_details from list action
+                    actionData.schedule_details = action.schedule_details;
                   }
 
                   logger.info(
@@ -980,6 +1056,8 @@ const pollScheduler = async () => {
                     {
                       hasScheduleDetails: !!actionData?.schedule_details,
                       scheduleDetails: actionData?.schedule_details,
+                      hasMEmailerActionSchedule:
+                        !!actionData?.m_emailer_action_schedule,
                     },
                   );
 
@@ -1054,8 +1132,18 @@ const pollScheduler = async () => {
           });
           continue;
         }
+        // Don't skip if emailer_type or email_service_type is "E" (dynamic recipients from query)
+        const isDynamicEmailType =
+          action.emailer_type === "E" || action.email_service_type === "E";
         const to = normalizeRecipients(action.to);
-        if (!to.length) continue;
+        if (!to.length && !isDynamicEmailType) continue;
+
+        logger.info("=== Checking dynamic email type ===", {
+          actionId: action.id,
+          isDynamicEmailType,
+          emailer_type: action.emailer_type,
+          email_service_type: action.email_service_type,
+        });
 
         const payload = { action, smtp, db };
         const tz = action.timezone || "UTC";
@@ -1073,22 +1161,47 @@ const pollScheduler = async () => {
             m_emailer_action_schedule: action.m_emailer_action_schedule,
           });
 
+          // Priority 1: Use schedule_details if available
           if (action.schedule_details && action.schedule_details.trim()) {
+            logger.info(
+              "=== Trying to parse schedule_details (priority 1) ===",
+              {
+                actionId: action.id,
+              },
+            );
             parsed = parseScheduleDetails(action.schedule_details, tz);
             logger.info("=== parseScheduleDetails result ===", {
               actionId: action.id,
               parsed: parsed,
             });
+            if (parsed) {
+              logger.info("=== Successfully parsed schedule_details! ===", {
+                actionId: action.id,
+                parsedType: parsed.type,
+              });
+            } else {
+              logger.warn(
+                "=== Failed to parse schedule_details, skipping m_emailer_action_schedule ===",
+                {
+                  actionId: action.id,
+                },
+              );
+            }
           }
 
+          // Priority 2: Only use m_emailer_action_schedule if schedule_details is missing/empty
           if (
             !parsed &&
+            (!action.schedule_details || !action.schedule_details.trim()) &&
             action.m_emailer_action_schedule &&
             action.m_emailer_action_schedule.length > 0
           ) {
-            logger.info("=== Falling back to parseScheduleFromObject ===", {
-              actionId: action.id,
-            });
+            logger.info(
+              "=== Falling back to parseScheduleFromObject (priority 2) ===",
+              {
+                actionId: action.id,
+              },
+            );
 
             for (const scheduleObj of action.m_emailer_action_schedule) {
               parsed = parseScheduleFromObject(scheduleObj, tz);
@@ -1096,7 +1209,17 @@ const pollScheduler = async () => {
             }
           }
 
-          if (!parsed && action.schedule_time) {
+          // Priority 3: Only use schedule_time if neither of the above are available
+          if (
+            !parsed &&
+            (!action.schedule_details || !action.schedule_details.trim()) &&
+            (!action.m_emailer_action_schedule ||
+              action.m_emailer_action_schedule.length === 0) &&
+            action.schedule_time
+          ) {
+            logger.info("=== Falling back to schedule_time (priority 3) ===", {
+              actionId: action.id,
+            });
             const cron = parseScheduleTime(action.schedule_time);
             if (cron) {
               parsed = { type: "DAILY", cron };
@@ -1163,6 +1286,19 @@ const pollScheduler = async () => {
             logger.info(`Scheduled advanced email`, {
               actionId: action.id,
               database: db,
+            });
+            continue;
+          }
+          if (parsed.type === "WEEKLY") {
+            const jobKey = `${db}-weekly-${action.id}`;
+            activeJobKeys.add(jobKey);
+            const cron = `${parsed.minute} ${parsed.hour} * * ${parsed.dayOfWeek}`;
+            await addRepeatJob({ ...payload, advanced: parsed }, cron, jobKey);
+
+            logger.info(`Scheduled weekly email`, {
+              actionId: action.id,
+              database: db,
+              cron,
             });
             continue;
           }
@@ -1248,6 +1384,7 @@ const pollScheduler = async () => {
       if (
         jobKey.includes("-adv-") ||
         jobKey.includes("-daily-") ||
+        jobKey.includes("-weekly-") ||
         jobKey.includes("-fallback-")
       ) {
         let isActive = false;

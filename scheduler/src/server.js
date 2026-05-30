@@ -911,6 +911,9 @@ const errorHandler = require("./utils/errorMiddleware.js");
 const { Queue } = require("bullmq");
 const IORedis = require("ioredis");
 const logger = require("./utils/logger");
+const { startEmailWorker } = require("./workers/emailWorker");
+
+let emailWorker = null;
 
 let isShuttingDown = false;
 let redisConnectionAttempts = 0;
@@ -1040,6 +1043,10 @@ const gracefulShutdown = async (signal) => {
 
   try {
     if (server) await new Promise((res) => server.close(res));
+    if (emailWorker) {
+      console.log("Closing email worker...");
+      await emailWorker.close();
+    }
     await emailQueue.close();
     await connection.quit();
     clearTimeout(forceExit);
@@ -1063,6 +1070,10 @@ server = app.listen(PORT, "0.0.0.0", async () => {
   server.maxConnections = 1000;
 
   logger.info(`Server running on http://localhost:${PORT}`);
+
+  console.log("Starting email worker...");
+  emailWorker = startEmailWorker();
+  console.log("Email worker started successfully");
 
   const isIISNode = typeof process.env.IISNODE_VERSION !== "undefined";
   if (isIISNode) {

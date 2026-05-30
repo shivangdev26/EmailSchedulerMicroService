@@ -1254,7 +1254,7 @@
 
 const { Worker } = require("bullmq");
 const IORedis = require("ioredis");
-const { connection } = require("../bullmq"); // kept only for getAuthToken/fetchSmtpConfig that need it
+const { connection } = require("../bullmq");
 const { sendEmail } = require("../services/emailSenderService");
 const { getAuthToken, buildApiHeaders } = require("../services/apiAuthService");
 const { fetchSmtpConfig } = require("../services/emailerSmtpAccountService");
@@ -1283,7 +1283,6 @@ dayjs.extend(timezone);
 
 const emailQueueName = process.env.EMAIL_QUEUE_NAME || "email-scheduler";
 
-// ── Each worker gets its own Redis connection so IIS recycling
 //    of the shared connection doesn't kill the worker ──────────
 const createWorkerRedis = () =>
   new IORedis({
@@ -1305,6 +1304,231 @@ const normalizeRecipients = (value) => {
       .map((v) => v.trim())
       .filter(Boolean);
   return [];
+};
+
+const parseScheduleDetails = (details, tz = "UTC") => {
+  logger.debug("Parsing schedule details", { details, timezone: tz });
+  if (!details || typeof details !== "string") return null;
+
+  const one = details.match(
+    /(?:occurs\s*)?on (\d{2})\/(\d{2})\/(\d{4}) at (\d{1,2}):(\d{2}) (AM|PM)/i,
+  );
+
+  if (one) {
+    let [_, d, m, y, h, min, p] = one;
+    h = +h;
+    if (p === "PM" && h !== 12) h += 12;
+    if (p === "AM" && h === 12) h = 0;
+
+    return {
+      type: "ONE",
+      date: dayjs.tz(`${y}-${m}-${d} ${h}:${min}`, tz).utc(),
+    };
+  }
+
+  const daily = details.match(
+    /(?:occurs\s*)?every day at (\d{1,2}):(\d{2}) (AM|PM)/i,
+  );
+
+  if (daily) {
+    let h = +daily[1];
+    let min = +daily[2];
+    const p = daily[3];
+    if (p === "PM" && h !== 12) h += 12;
+    if (p === "AM" && h === 12) h = 0;
+
+    return {
+      type: "DAILY",
+      cron: `${min} ${h} * * *`,
+    };
+  }
+
+  const weekly = details.match(
+    /(?:occurs\s*)?every week on (Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday) at (\d{1,2}):(\d{2}) (AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})(?:\s*ending on\s*(\d{2})\/(\d{2})\/(\d{4}))?/i,
+  );
+
+  if (weekly) {
+    logger.info("=== PARSE SCHEDULE DETAILS DEBUG (WEEKLY) ===", {
+      details,
+      weeklyGroups: weekly.slice(0),
+    });
+
+    const dayMap = {
+      Sunday: 0,
+      Monday: 1,
+      Tuesday: 2,
+      Wednesday: 3,
+      Thursday: 4,
+      Friday: 5,
+      Saturday: 6,
+    };
+
+    let h = Number(weekly[2]);
+    let min = Number(weekly[3]);
+    const p = weekly[4];
+
+    if (p === "PM" && h !== 12) h += 12;
+    if (p === "AM" && h === 12) h = 0;
+
+    const startDate = dayjs.tz(
+      `${weekly[7]}-${weekly[6]}-${weekly[5]} 00:00`,
+      tz,
+    );
+
+    let endDate = null;
+    if (weekly[8] && weekly[9] && weekly[10]) {
+      endDate = dayjs.tz(`${weekly[10]}-${weekly[9]}-${weekly[8]} 23:59`, tz);
+    }
+
+    return {
+      type: "WEEKLY",
+      dayOfWeek: dayMap[weekly[1]],
+      hour: h,
+      minute: min,
+      startDate: startDate.toISOString(),
+      endDate: endDate ? endDate.toISOString() : null,
+      tz,
+    };
+  }
+
+  const advanced = details.match(
+    /(?:occurs\s*)?every\s*(?:(\d+)\s*day\(s\)|day)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})(?:\s*ending on\s*(\d{2})\/(\d{2})\/(\d{4}))?/i,
+  );
+
+  if (advanced) {
+    logger.info("=== PARSE SCHEDULE DETAILS DEBUG ===", {
+      details,
+      advancedGroups: advanced.slice(0),
+    });
+
+    let everyDays = advanced[1] ? Number(advanced[1]) : 1;
+    let everyIntervalAmount = Number(advanced[2]);
+    let everyIntervalType = advanced[3].toLowerCase();
+
+    let startH = Number(advanced[4]);
+    let startM = Number(advanced[5]);
+    let startP = advanced[6];
+    let endH = Number(advanced[7]);
+    let endM = Number(advanced[8]);
+    let endP = advanced[9];
+
+    if (startP === "PM" && startH !== 12) startH += 12;
+    if (startP === "AM" && startH === 12) startH = 0;
+    if (endP === "PM" && endH !== 12) endH += 12;
+    if (endP === "AM" && endH === 12) endH = 0;
+
+    const startDate = dayjs.tz(
+      `${advanced[12]}-${advanced[11]}-${advanced[10]} 00:00`,
+      tz,
+    );
+
+    let endDate = null;
+    if (advanced[13] && advanced[14] && advanced[15]) {
+      endDate = dayjs.tz(
+        `${advanced[15]}-${advanced[14]}-${advanced[13]} 23:59`,
+        tz,
+      );
+    }
+
+    return {
+      type: "ADVANCED",
+      everyDays,
+      everyMinutes:
+        everyIntervalType === "hour"
+          ? everyIntervalAmount * 60
+          : everyIntervalAmount,
+      startH,
+      startM,
+      endH,
+      endM,
+      startDate: startDate.toISOString(),
+      endDate: endDate ? endDate.toISOString() : null,
+      tz,
+    };
+  }
+
+  return null;
+};
+
+const parseScheduleFromObject = (scheduleObj, tz = "UTC") => {
+  logger.info("=== PARSE SCHEDULE FROM OBJECT DEBUG ===", {
+    scheduleObj,
+    timezone: tz,
+  });
+  if (!scheduleObj) return null;
+
+  if (
+    scheduleObj.schedule_type === "R" &&
+    scheduleObj.occurs === "D" &&
+    scheduleObj.daily_freq === "O" &&
+    scheduleObj.occurs_once
+  ) {
+    const occursOnce = dayjs.tz(scheduleObj.occurs_once, tz);
+    const minute = occursOnce.minute();
+    const hour = occursOnce.hour();
+
+    return {
+      type: "DAILY",
+      cron: `${minute} ${hour} * * *`,
+    };
+  }
+
+  if (
+    scheduleObj.schedule_type === "R" &&
+    scheduleObj.occurs === "D" &&
+    scheduleObj.daily_freq === "E"
+  ) {
+    let everyMinutes = Number(scheduleObj.occurs_every);
+    if (scheduleObj.occurs_every_hour === "H") {
+      everyMinutes *= 60;
+    }
+
+    let startH = 0,
+      startM = 0,
+      endH = 23,
+      endM = 59;
+    if (scheduleObj.starting_at) {
+      const startTime = dayjs.tz(scheduleObj.starting_at, tz);
+      startH = startTime.hour();
+      startM = startTime.minute();
+    }
+    if (scheduleObj.ending_at) {
+      const endTime = dayjs.tz(scheduleObj.ending_at, tz);
+      endH = endTime.hour();
+      endM = endTime.minute();
+    }
+
+    const parsedAdvanced = {
+      type: "ADVANCED",
+      everyMinutes,
+      startDate: scheduleObj.start_date
+        ? dayjs.tz(scheduleObj.start_date, tz).toISOString()
+        : dayjs.tz(dayjs(), tz).toISOString(),
+      everyDays: Number(scheduleObj.recurs_every || 1),
+      startH,
+      startM,
+      endH,
+      endM,
+      tz,
+    };
+
+    logger.info("=== parseScheduleFromObject final ADVANCED ===", {
+      parsedAdvanced,
+    });
+
+    return parsedAdvanced;
+  }
+
+  if (scheduleObj.schedule_type === "O" && scheduleObj.one_time) {
+    const oneTimeDate = dayjs.tz(scheduleObj.one_time, tz).utc();
+
+    return {
+      type: "ONE",
+      date: oneTimeDate,
+    };
+  }
+
+  return null;
 };
 
 const buildEmailPayloadFromConfig = (config, smtp, attachments = []) => {
@@ -1334,7 +1558,6 @@ const startEmailWorker = () => {
   const concurrency = Number(process.env.EMAIL_WORKER_CONCURRENCY) || 20;
   const lockDuration = Number(process.env.EMAIL_WORKER_LOCK_DURATION) || 30000;
 
-  // ── Dedicated connection for this worker ──
   const workerConnection = createWorkerRedis();
 
   workerConnection.on("error", (err) =>
@@ -1353,6 +1576,10 @@ const startEmailWorker = () => {
 
       try {
         if (job.name === "send-email") {
+          logger.info("=== send-email job picked up ===", {
+            jobId: job.id,
+            jobData: job.data,
+          });
           const { action, smtp, db, advanced } = job.data.payload || job.data;
 
           let currentAction = action;
@@ -1391,93 +1618,202 @@ const startEmailWorker = () => {
             return;
           }
 
-          const tz = advanced?.tz || currentAction?.timezone || "UTC";
+          // Re-parse schedule details from currentAction to get fresh schedule object
+          let currentSchedule = advanced;
+          const tz = currentAction?.timezone || "UTC";
+          let parsed = null;
+
+          // Try schedule_details first
+          if (currentAction.schedule_details) {
+            parsed = parseScheduleDetails(currentAction.schedule_details, tz);
+            logger.info("=== Tried parsing schedule details ===", {
+              actionId: currentAction.id,
+              hasScheduleDetails: true,
+              parsed,
+            });
+          }
+
+          // If that didn't work, try m_emailer_action_schedule
+          if (
+            (!parsed ||
+              (parsed.type !== "ADVANCED" && parsed.type !== "WEEKLY")) &&
+            currentAction.m_emailer_action_schedule &&
+            currentAction.m_emailer_action_schedule.length > 0
+          ) {
+            logger.info("=== Trying parseScheduleFromObject ===", {
+              actionId: currentAction.id,
+            });
+            for (const scheduleObj of currentAction.m_emailer_action_schedule) {
+              parsed = parseScheduleFromObject(scheduleObj, tz);
+              if (parsed) break;
+            }
+          }
+
+          if (
+            parsed &&
+            (parsed.type === "ADVANCED" || parsed.type === "WEEKLY")
+          ) {
+            currentSchedule = parsed;
+            logger.info("Re-parsed schedule details from current action", {
+              actionId: currentAction.id,
+              parsed,
+            });
+          }
+
           const now = dayjs().tz(tz);
 
-          if (advanced) {
-            const startDate = dayjs(advanced.startDate).tz(tz);
-            const endDate = advanced.endDate
-              ? dayjs(advanced.endDate).tz(tz)
-              : null;
+          if (currentSchedule) {
+            if (currentSchedule.type === "ADVANCED") {
+              const startDate = dayjs(currentSchedule.startDate).tz(tz);
+              const endDate = currentSchedule.endDate
+                ? dayjs(currentSchedule.endDate).tz(tz)
+                : null;
 
-            logger.info("=== ADVANCED EMAIL DEBUG ===", {
-              actionId: currentAction.id,
-              timezone: tz,
-              nowInTz: now.format(),
-              startDate: startDate.format(),
-              endDate: endDate ? endDate.format() : null,
-              advanced: advanced, // Log complete advanced object!
-              startH: advanced.startH,
-              startM: advanced.startM,
-              endH: advanced.endH,
-              endM: advanced.endM,
-            });
+              const daysSinceStart = now
+                .startOf("day")
+                .diff(startDate.startOf("day"), "day");
+              const modulo = daysSinceStart % currentSchedule.everyDays;
+              logger.info("=== ADVANCED EMAIL DEBUG ===", {
+                actionId: currentAction.id,
+                timezone: tz,
+                nowInTz: now.format(),
+                startDate: startDate.format(),
+                endDate: endDate ? endDate.format() : null,
+                schedule: currentSchedule,
+                startH: currentSchedule.startH,
+                startM: currentSchedule.startM,
+                endH: currentSchedule.endH,
+                endM: currentSchedule.endM,
+                daysSinceStart,
+                everyDays: currentSchedule.everyDays,
+                modulo: modulo,
+              });
 
-            if (now.isBefore(startDate, "day")) {
-              logger.info("Skipping advanced email: before start date", {
+              if (now.isBefore(startDate, "day")) {
+                logger.info("Skipping advanced email: before start date", {
+                  actionId: currentAction.id,
+                });
+                return;
+              }
+              if (endDate && now.isAfter(endDate, "day")) {
+                logger.info("Skipping advanced email: after end date", {
+                  actionId: currentAction.id,
+                });
+                return;
+              }
+
+              logger.info("Days since start", {
+                actionId: currentAction.id,
+                daysSinceStart,
+                everyDays: currentSchedule.everyDays,
+                modulo,
+              });
+              if (
+                currentSchedule.everyDays > 1 &&
+                daysSinceStart % currentSchedule.everyDays !== 0
+              ) {
+                logger.info("Skipping advanced email: not on interval day", {
+                  actionId: currentAction.id,
+                });
+                return;
+              }
+
+              const currentTimeInMins = now.hour() * 60 + now.minute();
+              const startTotalMins =
+                (currentSchedule.startH ?? 0) * 60 +
+                (currentSchedule.startM ?? 0);
+              const endTotalMins =
+                (currentSchedule.endH ?? 23) * 60 +
+                (currentSchedule.endM ?? 59);
+
+              logger.info("Time window check", {
+                actionId: currentAction.id,
+                currentTimeInMins,
+                startTotalMins,
+                endTotalMins,
+              });
+
+              let shouldSkip;
+              if (startTotalMins <= endTotalMins) {
+                shouldSkip =
+                  currentTimeInMins < startTotalMins ||
+                  currentTimeInMins > endTotalMins;
+              } else {
+                shouldSkip =
+                  currentTimeInMins > endTotalMins &&
+                  currentTimeInMins < startTotalMins;
+              }
+
+              logger.info("Should skip?", {
+                actionId: currentAction.id,
+                shouldSkip,
+              });
+
+              if (shouldSkip) {
+                logger.info("Skipping advanced email: outside time window", {
+                  actionId: currentAction.id,
+                });
+                return;
+              }
+            } else if (currentSchedule.type === "WEEKLY") {
+              const startDate = dayjs(currentSchedule.startDate).tz(tz);
+              const endDate = currentSchedule.endDate
+                ? dayjs(currentSchedule.endDate).tz(tz)
+                : null;
+
+              logger.info("=== WEEKLY EMAIL DEBUG ===", {
+                actionId: currentAction.id,
+                timezone: tz,
+                nowInTz: now.format(),
+                startDate: startDate.format(),
+                endDate: endDate ? endDate.format() : null,
+                schedule: currentSchedule,
+                dayOfWeek: currentSchedule.dayOfWeek,
+                hour: currentSchedule.hour,
+                minute: currentSchedule.minute,
+              });
+
+              if (now.isBefore(startDate, "day")) {
+                logger.info("Skipping weekly email: before start date", {
+                  actionId: currentAction.id,
+                });
+                return;
+              }
+              if (endDate && now.isAfter(endDate, "day")) {
+                logger.info("Skipping weekly email: after end date", {
+                  actionId: currentAction.id,
+                });
+                return;
+              }
+
+              // Check if today is the correct day of week
+              if (now.day() !== currentSchedule.dayOfWeek) {
+                logger.info("Skipping weekly email: not the correct day", {
+                  actionId: currentAction.id,
+                  todayDay: now.day(),
+                  expectedDay: currentSchedule.dayOfWeek,
+                });
+                return;
+              }
+
+              // Check if current time matches the scheduled hour and minute
+              if (
+                now.hour() !== currentSchedule.hour ||
+                now.minute() !== currentSchedule.minute
+              ) {
+                logger.info("Skipping weekly email: not the correct time", {
+                  actionId: currentAction.id,
+                  currentHour: now.hour(),
+                  currentMinute: now.minute(),
+                  expectedHour: currentSchedule.hour,
+                  expectedMinute: currentSchedule.minute,
+                });
+                return;
+              }
+
+              logger.info("Weekly email checks passed, proceeding", {
                 actionId: currentAction.id,
               });
-              return;
-            }
-            if (endDate && now.isAfter(endDate, "day")) {
-              logger.info("Skipping advanced email: after end date", {
-                actionId: currentAction.id,
-              });
-              return;
-            }
-
-            const daysSinceStart = now
-              .startOf("day")
-              .diff(startDate.startOf("day"), "day");
-            logger.info("Days since start", {
-              actionId: currentAction.id,
-              daysSinceStart,
-              everyDays: advanced.everyDays,
-            });
-            if (
-              advanced.everyDays > 1 &&
-              daysSinceStart % advanced.everyDays !== 0
-            ) {
-              logger.info("Skipping advanced email: not on interval day", {
-                actionId: currentAction.id,
-              });
-              return;
-            }
-
-            const currentTimeInMins = now.hour() * 60 + now.minute();
-            const startTotalMins =
-              (advanced.startH ?? 0) * 60 + (advanced.startM ?? 0);
-            const endTotalMins =
-              (advanced.endH ?? 23) * 60 + (advanced.endM ?? 59);
-
-            logger.info("Time window check", {
-              actionId: currentAction.id,
-              currentTimeInMins,
-              startTotalMins,
-              endTotalMins,
-            });
-
-            let shouldSkip;
-            if (startTotalMins <= endTotalMins) {
-              shouldSkip =
-                currentTimeInMins < startTotalMins ||
-                currentTimeInMins > endTotalMins;
-            } else {
-              shouldSkip =
-                currentTimeInMins > endTotalMins &&
-                currentTimeInMins < startTotalMins;
-            }
-
-            logger.info("Should skip?", {
-              actionId: currentAction.id,
-              shouldSkip,
-            });
-
-            if (shouldSkip) {
-              logger.info("Skipping advanced email: outside time window", {
-                actionId: currentAction.id,
-              });
-              return;
             }
           }
 
@@ -1504,6 +1840,257 @@ const startEmailWorker = () => {
             }
           }
 
+          // Handle email_service_type = 'E' - do this BEFORE replaceQueryPlaceholders
+          let toEmails = normalizeRecipients(currentAction.to);
+          let ccEmails = normalizeRecipients(currentAction.cc);
+          let bccEmails = normalizeRecipients(currentAction.bcc);
+          let groupedQueryData = null;
+
+          if (
+            currentAction.email_service_type === "E" ||
+            currentAction.emailer_type === "E"
+          ) {
+            logger.info("Handling emailer_type/email_service_type 'E'", {
+              actionId: currentAction.id,
+              emailer_type: currentAction.emailer_type,
+              email_service_type: currentAction.email_service_type,
+            });
+
+            // Get the raw query results
+            const rawResults = queryData._rawResults || {};
+            logger.info("Query data _rawResults keys", {
+              actionId: currentAction.id,
+              keys: Object.keys(rawResults),
+            });
+
+            const firstQueryKey = Object.keys(rawResults).find((k) =>
+              Array.isArray(rawResults[k]),
+            );
+            const tblData = firstQueryKey ? rawResults[firstQueryKey] : [];
+
+            logger.info("UDF tblData for emailer_type 'E'", {
+              actionId: currentAction.id,
+              firstQueryKey,
+              tblDataLength: tblData.length,
+              tblDataSample: tblData.slice(0, 3),
+            });
+
+            // Helper function to remove sensitive fields (to_email, cc_email, bcc_email) from a row
+            const cleanRow = (row) => {
+              const cleaned = { ...row };
+              const originalKeys = Object.keys(row);
+              delete cleaned.to_email;
+              delete cleaned.cc_email;
+              delete cleaned.bcc_email;
+              const newKeys = Object.keys(cleaned);
+              // Only log for the first row to avoid spam
+              if (row === tblData[0]) {
+                logger.info(
+                  "cleanRow function execution details (first row only):",
+                  {
+                    originalKeys,
+                    newKeys,
+                    had_to_email: "to_email" in row,
+                    had_cc_email: "cc_email" in row,
+                    had_bcc_email: "bcc_email" in row,
+                  },
+                );
+              }
+              return cleaned;
+            };
+
+            // FIRST: Clean _rawResults and queryData to remove sensitive fields!
+            logger.info("=== Step 1: Cleaning sensitive fields from data ===", {
+              actionId: currentAction.id,
+            });
+            // Override ALL _rawResults keys to use cleaned data
+            Object.keys(rawResults).forEach((key) => {
+              if (Array.isArray(rawResults[key])) {
+                rawResults[key] = rawResults[key].map(cleanRow);
+                // Also override the same key in queryData (like query_result_0)
+                if (queryData[key]) {
+                  queryData[key] = rawResults[key];
+                }
+              }
+            });
+            // Also override any query_result_* keys not in _rawResults
+            Object.keys(queryData).forEach((key) => {
+              if (
+                key.startsWith("query_result_") &&
+                Array.isArray(queryData[key])
+              ) {
+                queryData[key] = queryData[key].map(cleanRow);
+              }
+            });
+            logger.info("=== Step 1 complete: Sensitive fields removed ===");
+
+            // THEN: Group by customer_code and calculate totals!
+            logger.info("=== Step 2: Grouping by customer_code ===", {
+              actionId: currentAction.id,
+            });
+            const groupedData = tblData.reduce((acc, row) => {
+              const customerCode = row.customer_code || "";
+              if (!acc[customerCode]) {
+                acc[customerCode] = {
+                  customer_code: customerCode,
+                  customer_name: row.customer_name || "",
+                  rows: [],
+                  to_email: row.to_email || "",
+                  cc_email: row.cc_email || "",
+                  bcc_email: row.bcc_email || "",
+                  // Initialize total fields
+                  total_bill_amount: 0,
+                  total_paid_amount: 0,
+                  total_balance_amount: 0,
+                  total_bill_amount_sy: 0,
+                  total_paid_amount_sy: 0,
+                  total_balance_amount_sy: 0,
+                };
+              }
+              // Clean the row and add to rows
+              const cleanedRow = cleanRow(row);
+              acc[customerCode].rows.push(cleanedRow);
+              // Update emails if not already set
+              if (!acc[customerCode].to_email && row.to_email) {
+                acc[customerCode].to_email = row.to_email;
+              }
+              if (!acc[customerCode].cc_email && row.cc_email) {
+                acc[customerCode].cc_email = row.cc_email;
+              }
+              if (!acc[customerCode].bcc_email && row.bcc_email) {
+                acc[customerCode].bcc_email = row.bcc_email;
+              }
+              // Sum the numeric fields
+              acc[customerCode].total_bill_amount += row.bill_amount || 0;
+              acc[customerCode].total_paid_amount += row.paid_amount || 0;
+              acc[customerCode].total_balance_amount += row.balance_amount || 0;
+              acc[customerCode].total_bill_amount_sy += row.bill_amount_sy || 0;
+              acc[customerCode].total_paid_amount_sy += row.paid_amount_sy || 0;
+              acc[customerCode].total_balance_amount_sy +=
+                row.balance_amount_sy || 0;
+              return acc;
+            }, {});
+            logger.info("Grouped data by customer_code", {
+              actionId: currentAction.id,
+              groupCount: Object.keys(groupedData).length,
+              groups: Object.keys(groupedData),
+            });
+            logger.info("=== Step 2 complete: Grouping done ===");
+
+            // Collect all unique emails
+            const allToEmails = new Set();
+            const allCcEmails = new Set();
+            const allBccEmails = new Set();
+            Object.values(groupedData).forEach((group) => {
+              normalizeRecipients(group.to_email).forEach((email) =>
+                allToEmails.add(email),
+              );
+              normalizeRecipients(group.cc_email).forEach((email) =>
+                allCcEmails.add(email),
+              );
+              normalizeRecipients(group.bcc_email).forEach((email) =>
+                allBccEmails.add(email),
+              );
+            });
+            toEmails = Array.from(allToEmails);
+            ccEmails = Array.from(allCcEmails);
+            bccEmails = Array.from(allBccEmails);
+            logger.info(
+              "Collected emails for emailer_type/email_service_type 'E'",
+              {
+                actionId: currentAction.id,
+                toEmails: toEmails,
+                ccEmails: ccEmails,
+                bccEmails: bccEmails,
+              },
+            );
+
+            // Prepare grouped data for email body and attachments
+            const groupedArray = Object.values(groupedData);
+            // Create a customer summary array (one entry per customer with totals)
+            const customerSummary = groupedArray.map((group) => ({
+              customer_code: group.customer_code,
+              customer_name: group.customer_name,
+              total_bill_amount: group.total_bill_amount,
+              total_paid_amount: group.total_paid_amount,
+              total_balance_amount: group.total_balance_amount,
+              total_bill_amount_sy: group.total_bill_amount_sy,
+              total_paid_amount_sy: group.total_paid_amount_sy,
+              total_balance_amount_sy: group.total_balance_amount_sy,
+            }));
+            // Prepare flattened clean data for attachments (all rows with sensitive fields removed)
+            const flattenedCleanData = tblData.map(cleanRow);
+            // Also prepare grouped data with all rows flattened (grouped per customer but combined)
+            const groupedForAttachments = groupedArray.map((group) => ({
+              ...group,
+              rows: group.rows, // already cleaned
+            }));
+
+            // Store in queryData so it's available for placeholder replacement
+            queryData.grouped_data = groupedArray;
+            queryData.clean_data = flattenedCleanData;
+            queryData.customer_summary = customerSummary; // NEW: summary per customer with totals!
+            // FINALLY: Automatically replace ALL query_result_* keys AND rawResults keys with customer_summary!
+            const queryResultKeys = Object.keys(queryData).filter((k) =>
+              k.startsWith("query_result_"),
+            );
+            if (queryResultKeys.length > 0) {
+              queryResultKeys.forEach((key) => {
+                queryData[key] = customerSummary;
+              });
+              // Also override rawResults keys for attachments!
+              Object.keys(rawResults).forEach((key) => {
+                if (Array.isArray(rawResults[key])) {
+                  rawResults[key] = customerSummary;
+                }
+              });
+              logger.info(
+                "Automatically replaced all query_result keys and rawResults with customer_summary",
+                {
+                  actionId: currentAction.id,
+                  replacedQueryKeys: queryResultKeys,
+                  rawResultsKeys: Object.keys(rawResults),
+                },
+              );
+            }
+
+            // Log detailed data state after E-mode logic
+            logger.info(
+              "=== Final Detailed Data State After E-Mode Logic ===",
+              {
+                actionId: currentAction.id,
+                queryDataKeys: Object.keys(queryData),
+                // Show first few query_result entries with keys
+                queryResultData: (() => {
+                  const keys = Object.keys(queryData).filter((k) =>
+                    k.startsWith("query_result_"),
+                  );
+                  return keys.map((k) => ({
+                    key: k,
+                    isArray: Array.isArray(queryData[k]),
+                    firstItem: Array.isArray(queryData[k])
+                      ? queryData[k][0]
+                      : queryData[k],
+                    itemCount: Array.isArray(queryData[k])
+                      ? queryData[k].length
+                      : "not array",
+                    firstItemKeys:
+                      Array.isArray(queryData[k]) && queryData[k][0]
+                        ? Object.keys(queryData[k][0])
+                        : [],
+                  }));
+                })(),
+                rawResultsKeys: Object.keys(rawResults),
+              },
+            );
+
+            groupedQueryData = {
+              groupedArray,
+              flattenedCleanData,
+              groupedForAttachments,
+            };
+          }
+
           let subject =
             currentAction.subject ||
             currentAction.display_name ||
@@ -1522,6 +2109,22 @@ const startEmailWorker = () => {
                 ? `<div>${currentAction.display_name}</div>`
                 : "No content";
 
+          // Log what queryData looks like right before calling replaceQueryPlaceholders
+          logger.info("queryData right before replaceQueryPlaceholders call:", {
+            actionId: currentAction.id,
+            queryDataKeys: Object.keys(queryData),
+            firstQuerySample: (() => {
+              const firstKey = Object.keys(queryData).find((k) =>
+                k.startsWith("query_result_"),
+              );
+              if (!firstKey || !Array.isArray(queryData[firstKey])) return null;
+              return {
+                key: firstKey,
+                sampleFirstRow: queryData[firstKey][0],
+                sampleFirstRowKeys: Object.keys(queryData[firstKey][0] || {}),
+              };
+            })(),
+          });
           if (Object.keys(queryData).length > 0) {
             subject = replaceQueryPlaceholders(subject, queryData);
             textBody = replaceQueryPlaceholders(textBody, queryData);
@@ -1537,9 +2140,9 @@ const startEmailWorker = () => {
               secure: smtp.secure || smtp.is_ssl === "Y",
             },
             from: smtp.email_address || smtp.user_name,
-            to: normalizeRecipients(currentAction.to),
-            cc: normalizeRecipients(currentAction.cc),
-            bcc: normalizeRecipients(currentAction.bcc),
+            to: toEmails,
+            cc: ccEmails,
+            bcc: bccEmails,
             subject,
             text: textBody,
             html: htmlBody,
@@ -1551,6 +2154,19 @@ const startEmailWorker = () => {
             (d) => d && Array.isArray(d) && d.length > 0,
           );
 
+          logger.info("=== Attachment generation debug ===", {
+            actionId: currentAction.id,
+            hasQueryData,
+            is_excel: currentAction.is_excel,
+            is_pdf: currentAction.is_pdf,
+            rawResultsKeys: Object.keys(rawResults),
+            rawResultsValues: Object.values(rawResults).map((v) => ({
+              isArray: Array.isArray(v),
+              length: Array.isArray(v) ? v.length : "N/A",
+              sample: Array.isArray(v) && v.length > 0 ? v[0] : null,
+            })),
+          });
+
           if (hasQueryData) {
             const baseFilename =
               currentAction.report_filename ||
@@ -1559,6 +2175,9 @@ const startEmailWorker = () => {
             const worksheetType = currentAction.worksheet_type || "S";
 
             if (currentAction.is_excel === "Y") {
+              logger.info("=== Generating Excel attachment ===", {
+                actionId: currentAction.id,
+              });
               try {
                 const excel = await generateExcelBuffer(
                   rawResults,
@@ -1571,15 +2190,24 @@ const startEmailWorker = () => {
                   encoding: "base64",
                   contentType: excel.mimetype,
                 });
+                logger.info("=== Excel attachment generated ===", {
+                  actionId: currentAction.id,
+                  filename: excel.filename,
+                  bufferLength: excel.buffer.length,
+                });
               } catch (err) {
                 logger.error("Failed to generate Excel attachment", {
                   actionId: currentAction.id,
                   error: err.message,
+                  stack: err.stack,
                 });
               }
             }
 
             if (currentAction.is_pdf === "Y") {
+              logger.info("=== Generating PDF attachment ===", {
+                actionId: currentAction.id,
+              });
               try {
                 const firstKey = Object.keys(rawResults).find((k) =>
                   Array.isArray(rawResults[k]),
@@ -1593,17 +2221,49 @@ const startEmailWorker = () => {
                     encoding: "base64",
                     contentType: pdf.mimetype,
                   });
+                  logger.info("=== PDF attachment generated ===", {
+                    actionId: currentAction.id,
+                    filename: pdf.filename,
+                    bufferLength: pdf.buffer.length,
+                  });
+                } else {
+                  logger.warn("=== No firstData to generate PDF ===", {
+                    actionId: currentAction.id,
+                    firstKey,
+                    firstDataLength: firstData?.length,
+                  });
                 }
               } catch (err) {
                 logger.error("Failed to generate PDF attachment", {
                   actionId: currentAction.id,
                   error: err.message,
+                  stack: err.stack,
                 });
               }
             }
           }
 
+          logger.info("=== Attachments array ===", {
+            actionId: currentAction.id,
+            attachmentsCount: attachments.length,
+            attachments: attachments.map((a) => ({
+              filename: a.filename,
+              contentType: a.contentType,
+            })),
+          });
+
           if (attachments.length > 0) emailPayload.attachments = attachments;
+
+          logger.info("=== Final email payload ===", {
+            actionId: currentAction.id,
+            hasAttachments: !!emailPayload.attachments,
+            attachmentsCount: emailPayload.attachments?.length || 0,
+            payloadKeys: Object.keys(emailPayload),
+            // Don't log full attachments content (it's huge), just filenames
+            attachmentFilenames: emailPayload.attachments?.map(
+              (a) => a.filename,
+            ),
+          });
 
           if (!emailPayload.to.length) {
             logger.warn("No recipients for action, skipping", {
@@ -1623,6 +2283,9 @@ const startEmailWorker = () => {
 
         // ── process-email-trigger ─────────────────────────────────────────────
         if (job.name === "process-email-trigger") {
+          console.log("=== PROCESS-EMAIL-TRIGGER JOB STARTED ===");
+          console.log("Job data:", job.data);
+
           const {
             Email_Event_Config_Id,
             ID,
@@ -1637,17 +2300,20 @@ const startEmailWorker = () => {
 
           let token;
           try {
+            console.log("Fetching auth token for database:", dbName);
             token = await getAuthToken(connection, dbName);
             if (!token)
               throw new Error(`Authentication failed for database: ${dbName}`);
-            logger.info(`Auth successful for database: ${dbName}`);
+            console.log(`Auth successful for database: ${dbName}`);
           } catch (authError) {
+            console.error("Auth error:", authError.message);
             throw new Error(
               `Cannot process email - authentication failed: ${authError.message}`,
             );
           }
 
           const configUrl = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerEventConfiguration/${Email_Event_Config_Id}`;
+          console.log("Fetching event config from:", configUrl);
 
           const fetchConfig = async (authToken) => {
             let response;
@@ -1660,7 +2326,7 @@ const startEmailWorker = () => {
                 },
               });
             } catch (error) {
-              logger.warn(`Auth attempt failed: ${error.message}`);
+              console.warn(`Auth attempt failed: ${error.message}`);
               return null;
             }
 
@@ -1668,6 +2334,7 @@ const startEmailWorker = () => {
               const altToken = authToken.startsWith("Bearer ")
                 ? authToken.replace(/^Bearer\s+/i, "")
                 : `Bearer ${authToken}`;
+              console.log("Trying alternative token format for config fetch");
               response = await fetch(configUrl, {
                 method: "GET",
                 headers: {
@@ -1680,15 +2347,20 @@ const startEmailWorker = () => {
           };
 
           let configResponse = await fetchConfig(token);
+          console.log("Config response status:", configResponse?.status);
           let configData;
 
           if (configResponse?.ok) {
             configData = await configResponse.json();
+            console.log(
+              "Config data received:",
+              JSON.stringify(configData, null, 2),
+            );
             if (
               configData.status === 401 ||
               configData.message?.toLowerCase().includes("unauthorized")
             ) {
-              logger.info("Detected 401 in 200 response, refreshing token...");
+              console.log("Detected 401 in 200 response, refreshing token...");
               token = await getAuthToken(connection, dbName, true);
               configResponse = await fetchConfig(token);
               if (configResponse?.ok) configData = await configResponse.json();
@@ -1699,6 +2371,11 @@ const startEmailWorker = () => {
             const errorText = configResponse
               ? await configResponse.text()
               : "No response";
+            console.error(
+              "Failed to fetch config:",
+              configResponse?.status,
+              errorText,
+            );
             throw new Error(
               `Failed to fetch event configuration: ${configResponse?.status} - ${errorText}`,
             );
@@ -1711,6 +2388,7 @@ const startEmailWorker = () => {
           }
 
           const config = configData.data[0];
+          console.log("Using config:", JSON.stringify(config, null, 2));
 
           // ── Now we have config, set linkExpiryDate properly ──
           const confirmationReq = config.confirmation_req;
@@ -1724,7 +2402,7 @@ const startEmailWorker = () => {
               .toISOString()
               .slice(0, 19)
               .replace("T", " ");
-            logger.info(`Confirmation required - expiry: ${linkExpiryDate}`);
+            console.log(`Confirmation required - expiry: ${linkExpiryDate}`);
           }
           // else linkExpiryDate stays "9999-12-31" (set above)
 
@@ -1738,6 +2416,7 @@ const startEmailWorker = () => {
                 .filter((u) => u.email === "Y")
                 .map((u) => u.user_id)
                 .filter(Boolean);
+              console.log("Fetching user emails for IDs:", userIds);
 
               if (userIds.length > 0) {
                 const UDF_QUERY_URL = process.env.UDF_QUERY_URL;
@@ -1763,24 +2442,45 @@ const startEmailWorker = () => {
 
                 const users =
                   userData?.tblData || userData?.data || userData?.result || [];
+                console.log("Fetched users:", users);
                 if (Array.isArray(users) && users.length > 0) {
                   config.recipients = users
                     .map((u) => u.email || u.email_address || u.user_email)
                     .filter(Boolean)
                     .join(",");
+                  console.log("Set recipients from users:", config.recipients);
                 }
               }
             } catch (userFetchError) {
-              logger.error("Error fetching user emails", {
-                error: userFetchError.message,
-              });
+              console.error(
+                "Error fetching user emails:",
+                userFetchError.message,
+              );
             }
           }
 
-          // ── Email queue fetch ─────────────────────────────────────────────
+          // ── Attachments (declare first) ───────────────────────────────────
+          let attachments = [];
+          const UDF_QUERY_URL =
+            "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/Common/UDF_query";
+
+          const parseTblData = (raw) => {
+            let parsed = raw;
+            if (typeof raw === "string") {
+              try {
+                parsed = JSON.parse(raw);
+              } catch {}
+            }
+            return (
+              parsed?.tblData ||
+              (Array.isArray(parsed) ? parsed : parsed?.data || [])
+            );
+          };
+
+          // ── Email queue fetch + Layout PDF attachment ─────────────────────
           if (config.include_layout_pdf === "Y") {
             try {
-              const UDF_QUERY_URL = process.env.UDF_QUERY_URL;
+              // First, keep the original email queue fetch for recipients
               const emailQueueResponse = await axios.post(
                 UDF_QUERY_URL,
                 { query: `select * from d_email_queue where id=${ID}` },
@@ -1812,9 +2512,51 @@ const startEmailWorker = () => {
                 config.recipients = records[0].to_email;
               }
             } catch (err) {
-              logger.error("Error fetching email_queue record", {
-                error: err.message,
+              console.error("Error fetching email_queue record:", err.message);
+            }
+
+            // Now, fetch the layout PDF from the new API
+            try {
+              // Get object_type from config if available, otherwise use event_name as fallback
+              const object_type = config.object_type || config.event_name;
+              const layoutPdfUrl =
+                "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/ReportViewer/Home/GetLayoutInPDF";
+
+              // Build URL with query parameters
+              const url = new URL(layoutPdfUrl);
+              url.searchParams.append("object_type", object_type);
+              url.searchParams.append("database", dbName);
+              url.searchParams.append("token", token);
+              url.searchParams.append("id", EntityId.toString());
+
+              console.log(`Fetching layout PDF from: ${url.toString()}`);
+
+              // Call API to get PDF as array buffer
+              const pdfResponse = await axios.get(url.toString(), {
+                responseType: "arraybuffer",
               });
+
+              console.log("Layout PDF response status:", pdfResponse.status);
+
+              // Add PDF to attachments array
+              attachments.push({
+                filename: `Layout_${EntityId}.pdf`,
+                content: pdfResponse.data.toString("base64"),
+                encoding: "base64",
+                contentType:
+                  pdfResponse.headers["content-type"] || "application/pdf",
+              });
+
+              console.log(
+                `Successfully fetched and added layout PDF for EntityId: ${EntityId}`,
+              );
+            } catch (pdfErr) {
+              console.error(
+                "Error fetching layout PDF:",
+                pdfErr.message,
+                "Status:",
+                pdfErr.response?.status,
+              );
             }
           }
 
@@ -1849,24 +2591,6 @@ const startEmailWorker = () => {
             }
           }
 
-          // ── Attachments ───────────────────────────────────────────────────
-          let attachments = [];
-          const UDF_QUERY_URL =
-            "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/Common/UDF_query";
-
-          const parseTblData = (raw) => {
-            let parsed = raw;
-            if (typeof raw === "string") {
-              try {
-                parsed = JSON.parse(raw);
-              } catch {}
-            }
-            return (
-              parsed?.tblData ||
-              (Array.isArray(parsed) ? parsed : parsed?.data || [])
-            );
-          };
-
           if (
             config.event_name === "d_fm_shipmentorder_cargodetails" &&
             ChildId
@@ -1894,21 +2618,17 @@ const startEmailWorker = () => {
                   const fileResp = await axios.get(cdn_url, {
                     responseType: "arraybuffer",
                   });
-                  attachments = [
-                    {
-                      filename: `Cargo_Details_${ChildId}.pdf`,
-                      content: fileResp.data.toString("base64"),
-                      encoding: "base64",
-                      contentType:
-                        fileResp.headers["content-type"] || "application/pdf",
-                    },
-                  ];
+                  attachments.push({
+                    filename: `Cargo_Details_${ChildId}.pdf`,
+                    content: fileResp.data.toString("base64"),
+                    encoding: "base64",
+                    contentType:
+                      fileResp.headers["content-type"] || "application/pdf",
+                  });
                 }
               }
             } catch (err) {
-              logger.error("Error fetching cargo attachment", {
-                error: err.message,
-              });
+              console.error("Error fetching cargo attachment:", err.message);
             }
           }
 
@@ -1918,6 +2638,10 @@ const startEmailWorker = () => {
             CombinedIds
           ) {
             try {
+              console.log(
+                "Fetching multiple attachments for combined IDs:",
+                CombinedIds,
+              );
               const resp = await axios.post(
                 UDF_QUERY_URL,
                 {
@@ -1931,6 +2655,7 @@ const startEmailWorker = () => {
                 },
               );
               const tblData = parseTblData(resp.data);
+              console.log("Fetched attachment records:", tblData.length);
 
               for (const record of tblData) {
                 let cdn_url = record?.cdn_url
@@ -1939,6 +2664,7 @@ const startEmailWorker = () => {
                   .replace(/[\s`"']+$/, "");
                 if (!cdn_url) continue;
                 try {
+                  console.log("Downloading attachment from:", cdn_url);
                   const fileResp = await axios.get(cdn_url, {
                     responseType: "arraybuffer",
                   });
@@ -1959,23 +2685,33 @@ const startEmailWorker = () => {
                       fileResp.headers["content-type"] ||
                       "application/octet-stream",
                   });
+                  console.log("Added attachment:", finalName);
                 } catch (dlErr) {
-                  logger.error(
-                    `Failed to download attachment for record ${record.id}`,
-                    { error: dlErr.message },
+                  console.error(
+                    `Failed to download attachment for record ${record.id}:`,
+                    dlErr.message,
                   );
                 }
               }
             } catch (err) {
-              logger.error("Error fetching multiple attachments", {
-                error: err.message,
-              });
+              console.error(
+                "Error fetching multiple attachments:",
+                err.message,
+              );
             }
           }
 
+          console.log(
+            "Current attachments array:",
+            attachments.length,
+            "attachments",
+          );
+
           // ── SMTP ──────────────────────────────────────────────────────────
+          console.log("Fetching SMTP config");
           const smtp = await fetchSmtpConfig({ token, connection, dbName });
           if (!smtp) throw new Error("SMTP configuration unavailable");
+          console.log("SMTP config received");
 
           // ── Domain URL / confirmation links ───────────────────────────────
           try {
@@ -1984,6 +2720,7 @@ const startEmailWorker = () => {
             );
             if (domainResponse.ok) {
               const domainUrlData = await domainResponse.json();
+              console.log("Domain URL data:", domainUrlData);
               if (domainUrlData?.url && config.msg_body) {
                 config.msg_body = config.msg_body
                   .replace(/{{confirm_link}}/g, domainUrlData.url)
@@ -1991,7 +2728,7 @@ const startEmailWorker = () => {
               }
             }
           } catch (err) {
-            logger.warn("Error fetching domain URL", { error: err.message });
+            console.warn("Error fetching domain URL:", err.message);
           }
 
           // ── Send ──────────────────────────────────────────────────────────
@@ -2000,18 +2737,24 @@ const startEmailWorker = () => {
             smtp,
             attachments,
           );
+          console.log(
+            "Built email payload:",
+            JSON.stringify(emailPayload, null, 2),
+          );
 
           if (!emailPayload.to.length) {
-            logger.warn(
+            console.warn(
               `No recipients for event ${Email_Event_Config_Id}, skipping`,
             );
           } else {
+            console.log("Sending email...");
             await sendEmail(emailPayload);
-            logger.info(
+            console.log(
               `Email sent successfully for event ${Email_Event_Config_Id}`,
             );
           }
 
+          console.log("Calling updateEmailQueueStatus with status SENT...");
           await updateEmailQueueStatus({
             token,
             id: ID,
@@ -2040,10 +2783,8 @@ const startEmailWorker = () => {
 
         logger.warn(`Unhandled job type: ${job.name}`);
       } catch (err) {
-        logger.error(`Job ${job.id} failed`, {
-          error: err.message,
-          stack: err.stack,
-        });
+        console.error(`Job ${job.id} failed:`, err.message);
+        console.error("Stack trace:", err.stack);
 
         const {
           Email_Event_Config_Id,
@@ -2055,6 +2796,7 @@ const startEmailWorker = () => {
         } = job.data;
         if (Email_Event_Config_Id) {
           try {
+            console.log("Updating failure status in updateEmailQueueStatus...");
             const token = await getAuthToken(connection, dbName);
             const isLastAttempt = job.attemptsMade >= 2;
             await updateEmailQueueStatus({
@@ -2072,9 +2814,7 @@ const startEmailWorker = () => {
               retry_count: job.attemptsMade,
             });
           } catch (ackErr) {
-            logger.error("Failed to update failure status", {
-              error: ackErr.message,
-            });
+            console.error("Failed to update failure status:", ackErr.message);
           }
         }
 
