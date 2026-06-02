@@ -3,6 +3,7 @@ const { getAuthToken, buildApiHeaders } = require("./apiAuthService");
 const { connection } = require("../bullmq");
 
 const DB_LIST_URL =
+  process.env.DATABASES_API_URL ||
   "https://logsuitedomainverify.dcctz.com/api/get-databases?access_token=46|dBslX9hktLYr3XfeD0uaoh3hd5ejfz6sPbQ6Midra9f22742";
 const STATUS_CHECK_URL =
   "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2/api/Common/GetEmailQueueStatustoCron?pageSize=100";
@@ -27,7 +28,11 @@ const processEmailQueueStatus = async () => {
 
       const dbData = dbListResponse.data?.data || dbListResponse.data;
       if (Array.isArray(dbData)) {
-        databases = dbData;
+        // Filter databases where email_service_type is 'N'
+        databases = dbData.filter((db) => db.email_service_type === "N");
+        console.log(
+          `Fetched ${dbData.length} total databases, filtered to ${databases.length} with email_service_type = 'N'`,
+        );
       }
     } catch (dbError) {
       console.warn(

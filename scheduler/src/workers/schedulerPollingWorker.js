@@ -637,6 +637,7 @@ const emailQueue = new Queue(emailQueueName, { connection });
 
 //config
 const DB_API =
+  process.env.DATABASES_API_URL ||
   "https://logsuitedomainverify.dcctz.com/api/get-databases?access_token=46|dBslX9hktLYr3XfeD0uaoh3hd5ejfz6sPbQ6Midra9f22742";
 
 const LOGIN_API =
@@ -678,13 +679,26 @@ const fetchAllDatabases = async (retries = 3) => {
     try {
       const response = await axios.get(DB_API, { timeout: 30000 });
       const databases = response.data?.data || [];
-      const dbNames = databases.map((db) => db.DBName).filter(Boolean);
+
+      // Filter databases where email_service_type is 'N'
+      const filteredDatabases = databases.filter(
+        (db) => db.email_service_type === "N",
+      );
+
+      const dbNames = filteredDatabases.map((db) => db.DBName).filter(Boolean);
 
       const uniqueDbNames = [...new Set(dbNames)];
 
-      logger.info(`Fetched ${uniqueDbNames.length} databases`, {
-        databases: uniqueDbNames,
-      });
+      logger.info(
+        `Fetched ${databases.length} total databases, filtered to ${uniqueDbNames.length} with email_service_type = 'N'`,
+        {
+          allDatabases: databases.map((db) => ({
+            name: db.DBName,
+            serviceType: db.email_service_type,
+          })),
+          filteredDatabases: uniqueDbNames,
+        },
+      );
       return uniqueDbNames;
     } catch (err) {
       lastError = err;
