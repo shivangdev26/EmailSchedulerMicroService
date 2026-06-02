@@ -1391,9 +1391,13 @@ const parseScheduleDetails = (details, tz = "UTC") => {
     };
   }
 
-  const advanced = details.match(
-    /(?:occurs\s*)?every\s*(?:(\d+)\s*day\(s\)|day)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})(?:\s*ending on\s*(\d{2})\/(\d{2})\/(\d{4}))?/i,
-  );
+  const advanced =
+    details.match(
+      /(?:occurs\s*)?every\s*(?:(\d+)\s*day\(s\)|day)\s*every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})(?:\s*ending on\s*(\d{2})\/(\d{2})\/(\d{4}))?/i,
+    ) ||
+    details.match(
+      /(?:occurs\s*)?every\s*(?:(\d+)\s*day\(s\)|day)every\s*(\d+)\s*(minute|hour)\(s\)\s*between\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*and\s*(\d{1,2}):(\d{2})\s*(AM|PM).*(?:Schedule will be\s*)?starting on\s*(\d{2})\/(\d{2})\/(\d{4})(?:\s*ending on\s*(\d{2})\/(\d{2})\/(\d{4}))?/i,
+    );
 
   if (advanced) {
     logger.info("=== PARSE SCHEDULE DETAILS DEBUG ===", {
@@ -1846,6 +1850,9 @@ const startEmailWorker = () => {
           let bccEmails = normalizeRecipients(currentAction.bcc);
           let groupedQueryData = null;
 
+          let sendPerCustomerEmails = false;
+          let sendAllDataEmailToCcBcc = false;
+
           if (
             currentAction.email_service_type === "E" ||
             currentAction.emailer_type === "E"
@@ -1878,24 +1885,9 @@ const startEmailWorker = () => {
             // Helper function to remove sensitive fields (to_email, cc_email, bcc_email) from a row
             const cleanRow = (row) => {
               const cleaned = { ...row };
-              const originalKeys = Object.keys(row);
               delete cleaned.to_email;
               delete cleaned.cc_email;
               delete cleaned.bcc_email;
-              const newKeys = Object.keys(cleaned);
-              // Only log for the first row to avoid spam
-              if (row === tblData[0]) {
-                logger.info(
-                  "cleanRow function execution details (first row only):",
-                  {
-                    originalKeys,
-                    newKeys,
-                    had_to_email: "to_email" in row,
-                    had_cc_email: "cc_email" in row,
-                    had_bcc_email: "bcc_email" in row,
-                  },
-                );
-              }
               return cleaned;
             };
 
@@ -1977,34 +1969,6 @@ const startEmailWorker = () => {
             });
             logger.info("=== Step 2 complete: Grouping done ===");
 
-            // Collect all unique emails
-            const allToEmails = new Set();
-            const allCcEmails = new Set();
-            const allBccEmails = new Set();
-            Object.values(groupedData).forEach((group) => {
-              normalizeRecipients(group.to_email).forEach((email) =>
-                allToEmails.add(email),
-              );
-              normalizeRecipients(group.cc_email).forEach((email) =>
-                allCcEmails.add(email),
-              );
-              normalizeRecipients(group.bcc_email).forEach((email) =>
-                allBccEmails.add(email),
-              );
-            });
-            toEmails = Array.from(allToEmails);
-            ccEmails = Array.from(allCcEmails);
-            bccEmails = Array.from(allBccEmails);
-            logger.info(
-              "Collected emails for emailer_type/email_service_type 'E'",
-              {
-                actionId: currentAction.id,
-                toEmails: toEmails,
-                ccEmails: ccEmails,
-                bccEmails: bccEmails,
-              },
-            );
-
             // Prepare grouped data for email body and attachments
             const groupedArray = Object.values(groupedData);
             // Create a customer summary array (one entry per customer with totals)
@@ -2030,65 +1994,19 @@ const startEmailWorker = () => {
             queryData.grouped_data = groupedArray;
             queryData.clean_data = flattenedCleanData;
             queryData.customer_summary = customerSummary; // NEW: summary per customer with totals!
-            // FINALLY: Automatically replace ALL query_result_* keys AND rawResults keys with customer_summary!
-            const queryResultKeys = Object.keys(queryData).filter((k) =>
-              k.startsWith("query_result_"),
-            );
-            if (queryResultKeys.length > 0) {
-              queryResultKeys.forEach((key) => {
-                queryData[key] = customerSummary;
-              });
-              // Also override rawResults keys for attachments!
-              Object.keys(rawResults).forEach((key) => {
-                if (Array.isArray(rawResults[key])) {
-                  rawResults[key] = customerSummary;
-                }
-              });
-              logger.info(
-                "Automatically replaced all query_result keys and rawResults with customer_summary",
-                {
-                  actionId: currentAction.id,
-                  replacedQueryKeys: queryResultKeys,
-                  rawResultsKeys: Object.keys(rawResults),
-                },
-              );
-            }
-
-            // Log detailed data state after E-mode logic
-            logger.info(
-              "=== Final Detailed Data State After E-Mode Logic ===",
-              {
-                actionId: currentAction.id,
-                queryDataKeys: Object.keys(queryData),
-                // Show first few query_result entries with keys
-                queryResultData: (() => {
-                  const keys = Object.keys(queryData).filter((k) =>
-                    k.startsWith("query_result_"),
-                  );
-                  return keys.map((k) => ({
-                    key: k,
-                    isArray: Array.isArray(queryData[k]),
-                    firstItem: Array.isArray(queryData[k])
-                      ? queryData[k][0]
-                      : queryData[k],
-                    itemCount: Array.isArray(queryData[k])
-                      ? queryData[k].length
-                      : "not array",
-                    firstItemKeys:
-                      Array.isArray(queryData[k]) && queryData[k][0]
-                        ? Object.keys(queryData[k][0])
-                        : [],
-                  }));
-                })(),
-                rawResultsKeys: Object.keys(rawResults),
-              },
-            );
 
             groupedQueryData = {
               groupedArray,
               flattenedCleanData,
               groupedForAttachments,
             };
+
+            // Set flags for the new behavior
+            sendPerCustomerEmails = true;
+            sendAllDataEmailToCcBcc =
+              toEmails.length > 0 ||
+              ccEmails.length > 0 ||
+              bccEmails.length > 0;
           }
 
           let subject =
@@ -2109,6 +2027,280 @@ const startEmailWorker = () => {
                 ? `<div>${currentAction.display_name}</div>`
                 : "No content";
 
+          // Function to generate attachments for given data
+          const generateAttachments = async (results) => {
+            const attachments = [];
+            const hasQueryData = Object.values(results).some(
+              (d) => d && Array.isArray(d) && d.length > 0,
+            );
+
+            if (hasQueryData) {
+              const baseFilename =
+                currentAction.report_filename ||
+                currentAction.display_name ||
+                "report";
+              const worksheetType = currentAction.worksheet_type || "S";
+
+              if (currentAction.is_excel === "Y") {
+                try {
+                  const excel = await generateExcelBuffer(
+                    results,
+                    baseFilename,
+                    worksheetType,
+                  );
+                  attachments.push({
+                    filename: excel.filename,
+                    content: excel.buffer.toString("base64"),
+                    encoding: "base64",
+                    contentType: excel.mimetype,
+                  });
+                } catch (err) {
+                  logger.error("Failed to generate Excel attachment", {
+                    actionId: currentAction.id,
+                    error: err.message,
+                  });
+                }
+              }
+
+              if (currentAction.is_pdf === "Y") {
+                try {
+                  const firstKey = Object.keys(results).find((k) =>
+                    Array.isArray(results[k]),
+                  );
+                  const firstData = firstKey ? results[firstKey] : null;
+                  if (firstData?.length > 0) {
+                    const pdf = await generatePdfBuffer(
+                      firstData,
+                      baseFilename,
+                    );
+                    attachments.push({
+                      filename: pdf.filename,
+                      content: pdf.buffer.toString("base64"),
+                      encoding: "base64",
+                      contentType: pdf.mimetype,
+                    });
+                  }
+                } catch (err) {
+                  logger.error("Failed to generate PDF attachment", {
+                    actionId: currentAction.id,
+                    error: err.message,
+                  });
+                }
+              }
+            }
+            return attachments;
+          };
+
+          // If emailer_type is 'E', send per-customer emails and all-data email to CC/BCC
+          if (sendPerCustomerEmails && groupedQueryData) {
+            const { groupedArray, flattenedCleanData } = groupedQueryData;
+            const allDataResults = { ...queryData._rawResults };
+
+            // 1. Send per-customer emails
+            for (const group of groupedArray) {
+              const customerToEmails = normalizeRecipients(group.to_email);
+              if (!customerToEmails.length) {
+                logger.warn("No to_email for customer, skipping", {
+                  actionId: currentAction.id,
+                  customer_code: group.customer_code,
+                });
+                continue;
+              }
+
+              // Create customer-specific query data
+              const customerQueryData = { ...queryData };
+              const customerResults = { ...allDataResults };
+
+              // Replace results with customer-specific data
+              const customerSummary = [
+                {
+                  customer_code: group.customer_code,
+                  customer_name: group.customer_name,
+                  total_bill_amount: group.total_bill_amount,
+                  total_paid_amount: group.total_paid_amount,
+                  total_balance_amount: group.total_balance_amount,
+                  total_bill_amount_sy: group.total_bill_amount_sy,
+                  total_paid_amount_sy: group.total_paid_amount_sy,
+                  total_balance_amount_sy: group.total_balance_amount_sy,
+                },
+              ];
+
+              // Update query_result_* keys and rawResults with customer-specific data
+              const queryResultKeys = Object.keys(customerQueryData).filter(
+                (k) => k.startsWith("query_result_"),
+              );
+              if (queryResultKeys.length > 0) {
+                queryResultKeys.forEach((key) => {
+                  customerQueryData[key] = group.rows;
+                });
+              }
+              // Update _rawResults with customer-specific rows
+              Object.keys(customerResults).forEach((key) => {
+                if (Array.isArray(customerResults[key])) {
+                  customerResults[key] = group.rows;
+                }
+              });
+              // Keep customer summary data available for placeholders
+              customerQueryData.customer_summary = customerSummary;
+
+              // Replace placeholders with customer-specific data
+              let customerSubject = subject;
+              let customerTextBody = textBody;
+              let customerHtmlBody = htmlBody;
+
+              if (Object.keys(customerQueryData).length > 0) {
+                customerSubject = replaceQueryPlaceholders(
+                  customerSubject,
+                  customerQueryData,
+                );
+                customerTextBody = replaceQueryPlaceholders(
+                  customerTextBody,
+                  customerQueryData,
+                );
+                customerHtmlBody = replaceQueryPlaceholders(
+                  customerHtmlBody,
+                  customerQueryData,
+                );
+              }
+
+              // Generate customer-specific attachments
+              const customerAttachments =
+                await generateAttachments(customerResults);
+
+              // Build and send email to this customer
+              const customerEmailPayload = {
+                smtp: {
+                  server: smtp.server || smtp.server_name,
+                  email: smtp.email || smtp.user_name,
+                  password: smtp.password,
+                  port: smtp.port || smtp.port_number,
+                  secure: smtp.secure || smtp.is_ssl === "Y",
+                },
+                from: smtp.email_address || smtp.user_name,
+                to: customerToEmails,
+                cc: [], // Don't send CC to customer-specific emails
+                bcc: [], // Don't send BCC to customer-specific emails
+                subject: customerSubject,
+                text: customerTextBody,
+                html: customerHtmlBody,
+              };
+
+              if (customerAttachments.length > 0) {
+                customerEmailPayload.attachments = customerAttachments;
+              }
+
+              logger.info("Sending customer-specific email", {
+                actionId: currentAction.id,
+                customer_code: group.customer_code,
+                to: customerToEmails,
+              });
+
+              await sendEmail(customerEmailPayload);
+
+              logger.info("Customer-specific email sent successfully", {
+                actionId: currentAction.id,
+                customer_code: group.customer_code,
+              });
+            }
+
+            // 2. Send all-data email to the configured To/CC/BCC recipients (from the emailer config)
+            logger.info("=== Preparing all-data email ===", {
+              actionId: currentAction.id,
+              to: toEmails,
+              cc: ccEmails,
+              bcc: bccEmails,
+            });
+            if (
+              toEmails.length > 0 ||
+              ccEmails.length > 0 ||
+              bccEmails.length > 0
+            ) {
+              logger.info("Sending all-data email to configured To/CC/BCC", {
+                actionId: currentAction.id,
+                to: toEmails,
+                cc: ccEmails,
+                bcc: bccEmails,
+              });
+
+              // Use original data for all-data email
+              let allDataSubject = subject;
+              let allDataTextBody = textBody;
+              let allDataHtmlBody = htmlBody;
+
+              if (Object.keys(queryData).length > 0) {
+                allDataSubject = replaceQueryPlaceholders(
+                  allDataSubject,
+                  queryData,
+                );
+                allDataTextBody = replaceQueryPlaceholders(
+                  allDataTextBody,
+                  queryData,
+                );
+                allDataHtmlBody = replaceQueryPlaceholders(
+                  allDataHtmlBody,
+                  queryData,
+                );
+              }
+
+              // Generate all-data attachments
+              const allDataAttachments =
+                await generateAttachments(allDataResults);
+
+              const allDataEmailPayload = {
+                smtp: {
+                  server: smtp.server || smtp.server_name,
+                  email: smtp.email || smtp.user_name,
+                  password: smtp.password,
+                  port: smtp.port || smtp.port_number,
+                  secure: smtp.secure || smtp.is_ssl === "Y",
+                },
+                from: smtp.email_address || smtp.user_name,
+                to: toEmails, // Send to configured 'to' emails
+                cc: ccEmails, // Send to configured 'cc' emails
+                bcc: bccEmails, // Send to configured 'bcc' emails
+                subject: allDataSubject,
+                text: allDataTextBody,
+                html: allDataHtmlBody,
+              };
+
+              if (allDataAttachments.length > 0) {
+                allDataEmailPayload.attachments = allDataAttachments;
+              }
+
+              if (
+                toEmails.length > 0 ||
+                ccEmails.length > 0 ||
+                bccEmails.length > 0
+              ) {
+                try {
+                  await sendEmail(allDataEmailPayload);
+                  logger.info(
+                    "All-data email sent successfully to configured To/CC/BCC",
+                    {
+                      actionId: currentAction.id,
+                      to: toEmails,
+                      cc: ccEmails,
+                      bcc: bccEmails,
+                    },
+                  );
+                } catch (emailError) {
+                  logger.error("Error sending all-data email", {
+                    actionId: currentAction.id,
+                    error: emailError.message,
+                    stack: emailError.stack,
+                  });
+                }
+              }
+            }
+
+            logger.info("Emailer_type 'E' processing complete", {
+              actionId: currentAction.id,
+              customerCount: groupedArray.length,
+            });
+            return;
+          }
+
+          // Original behavior for non-E type emails
           // Log what queryData looks like right before calling replaceQueryPlaceholders
           logger.info("queryData right before replaceQueryPlaceholders call:", {
             actionId: currentAction.id,
