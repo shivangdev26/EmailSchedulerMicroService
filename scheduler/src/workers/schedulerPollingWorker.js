@@ -1295,11 +1295,21 @@ const pollScheduler = async () => {
           if (parsed.type === "ADVANCED") {
             const jobKey = `${db}-adv-${action.id}`;
             activeJobKeys.add(jobKey);
-            await addRepeatJob(
-              { ...payload, advanced: parsed },
-              `*/${parsed.everyMinutes} * * * *`,
-              jobKey,
-            );
+
+            // Generate correct cron for every N minutes
+            let cron;
+            if (parsed.everyMinutes === 60) {
+              // Every hour, minute 0
+              cron = "0 * * * *";
+            } else if (parsed.everyMinutes > 60) {
+              // For intervals longer than 1 hour, we'll just use a cron that runs every minute
+              // and rely on the worker to check the actual interval
+              cron = "* * * * *";
+            } else {
+              cron = `*/${parsed.everyMinutes} * * * *`;
+            }
+
+            await addRepeatJob({ ...payload, advanced: parsed }, cron, jobKey);
 
             logger.info(`Scheduled advanced email`, {
               actionId: action.id,

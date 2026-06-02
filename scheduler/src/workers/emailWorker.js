@@ -1255,7 +1255,10 @@
 const { Worker } = require("bullmq");
 const IORedis = require("ioredis");
 const { connection } = require("../bullmq");
-const { sendEmail } = require("../services/emailSenderService");
+const {
+  sendEmail,
+  getSendEmailUrl,
+} = require("../services/emailSenderService");
 const { getAuthToken, buildApiHeaders } = require("../services/apiAuthService");
 const { fetchSmtpConfig } = require("../services/emailerSmtpAccountService");
 const { updateEmailQueueStatus } = require("../services/ackService");
@@ -1595,9 +1598,27 @@ const startEmailWorker = () => {
               const response = await axios.get(url, { headers });
 
               if (response.data?.data?.length > 0) {
-                currentAction = response.data.data[0];
+                currentAction = {
+                  ...response.data.data[0],
+                  ...action,
+                  m_emailer_action_schedule:
+                    response.data.data[0].m_emailer_action_schedule,
+                };
+                // Explicitly preserve original schedule_details
+                if (action.schedule_details) {
+                  currentAction.schedule_details = action.schedule_details;
+                }
               } else if (response.data?.tblData?.length > 0) {
-                currentAction = response.data.tblData[0];
+                currentAction = {
+                  ...response.data.tblData[0],
+                  ...action,
+                  m_emailer_action_schedule:
+                    response.data.tblData[0].m_emailer_action_schedule,
+                };
+                // Explicitly preserve original schedule_details
+                if (action.schedule_details) {
+                  currentAction.schedule_details = action.schedule_details;
+                }
               }
 
               logger.info("Fetched latest action details", {
@@ -1746,6 +1767,32 @@ const startEmailWorker = () => {
                 shouldSkip =
                   currentTimeInMins > endTotalMins &&
                   currentTimeInMins < startTotalMins;
+              }
+
+              // Check if current time is at the correct interval
+              if (!shouldSkip) {
+                let timeSinceStart;
+                if (startTotalMins <= endTotalMins) {
+                  timeSinceStart = currentTimeInMins - startTotalMins;
+                } else {
+                  // Overnight window
+                  if (currentTimeInMins >= startTotalMins) {
+                    timeSinceStart = currentTimeInMins - startTotalMins;
+                  } else {
+                    timeSinceStart = currentTimeInMins + 1440 - startTotalMins;
+                  }
+                }
+
+                // Check if timeSinceStart is a multiple of everyMinutes
+                if (timeSinceStart % currentSchedule.everyMinutes !== 0) {
+                  logger.info("Skipping advanced email: not at interval time", {
+                    actionId: currentAction.id,
+                    timeSinceStart,
+                    everyMinutes: currentSchedule.everyMinutes,
+                    modulo: timeSinceStart % currentSchedule.everyMinutes,
+                  });
+                  shouldSkip = true;
+                }
               }
 
               logger.info("Should skip?", {
@@ -2189,13 +2236,35 @@ const startEmailWorker = () => {
                 customerEmailPayload.attachments = customerAttachments;
               }
 
-              logger.info("Sending customer-specific email", {
+              logger.info("=== Customer-specific email payload ===", {
                 actionId: currentAction.id,
                 customer_code: group.customer_code,
-                to: customerToEmails,
+                from: customerEmailPayload.from,
+                to: customerEmailPayload.to,
+                cc: customerEmailPayload.cc,
+                bcc: customerEmailPayload.bcc,
+                subject: customerEmailPayload.subject,
+                hasAttachments: !!customerEmailPayload.attachments,
+                attachmentsCount: customerEmailPayload.attachments?.length || 0,
+                attachmentFilenames: customerEmailPayload.attachments?.map(
+                  (a) => a.filename,
+                ),
               });
 
-              await sendEmail(customerEmailPayload);
+              logger.info("=== Sending customer-specific email ===", {
+                actionId: currentAction.id,
+                customer_code: group.customer_code,
+                sendEmailUrl: getSendEmailUrl(),
+              });
+
+              const customerEmailResponse =
+                await sendEmail(customerEmailPayload);
+
+              logger.info("=== Customer-specific email response ===", {
+                actionId: currentAction.id,
+                customer_code: group.customer_code,
+                response: customerEmailResponse,
+              });
 
               logger.info("Customer-specific email sent successfully", {
                 actionId: currentAction.id,
@@ -2273,7 +2342,34 @@ const startEmailWorker = () => {
                 bccEmails.length > 0
               ) {
                 try {
-                  await sendEmail(allDataEmailPayload);
+                  logger.info("=== All-data email payload ===", {
+                    actionId: currentAction.id,
+                    from: allDataEmailPayload.from,
+                    to: allDataEmailPayload.to,
+                    cc: allDataEmailPayload.cc,
+                    bcc: allDataEmailPayload.bcc,
+                    subject: allDataEmailPayload.subject,
+                    hasAttachments: !!allDataEmailPayload.attachments,
+                    attachmentsCount:
+                      allDataEmailPayload.attachments?.length || 0,
+                    attachmentFilenames: allDataEmailPayload.attachments?.map(
+                      (a) => a.filename,
+                    ),
+                  });
+
+                  logger.info("=== Sending all-data email ===", {
+                    actionId: currentAction.id,
+                    sendEmailUrl: getSendEmailUrl(),
+                  });
+
+                  const allDataEmailResponse =
+                    await sendEmail(allDataEmailPayload);
+
+                  logger.info("=== All-data email response ===", {
+                    actionId: currentAction.id,
+                    response: allDataEmailResponse,
+                  });
+
                   logger.info(
                     "All-data email sent successfully to configured To/CC/BCC",
                     {
@@ -2455,6 +2551,12 @@ const startEmailWorker = () => {
             attachmentFilenames: emailPayload.attachments?.map(
               (a) => a.filename,
             ),
+            // Log critical details for debugging deliverability
+            from: emailPayload.from,
+            to: emailPayload.to,
+            cc: emailPayload.cc,
+            bcc: emailPayload.bcc,
+            subject: emailPayload.subject,
           });
 
           if (!emailPayload.to.length) {
@@ -2465,7 +2567,18 @@ const startEmailWorker = () => {
             return;
           }
 
-          await sendEmail(emailPayload);
+          logger.info("=== Sending email ===", {
+            actionId: currentAction.id,
+            sendEmailUrl: getSendEmailUrl(),
+          });
+
+          const sendEmailResponse = await sendEmail(emailPayload);
+
+          logger.info("=== Send email response ===", {
+            actionId: currentAction.id,
+            response: sendEmailResponse,
+          });
+
           logger.info("Email sent successfully", {
             actionId: currentAction.id,
             database: db,
