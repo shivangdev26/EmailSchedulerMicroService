@@ -87,3 +87,74 @@ Make sure you ran Command Prompt as Administrator
 
 
 
+
+
+17:52
+Good news — the workers are actually working fine. The logs show scheduling happening correctly. The stopped status in PM2 is because NSSM's SERVICE_PAUSED stopped the PM2 process.
+
+Current Status
+Workers logs = healthy ✅ (scheduling jobs, parsing correctly)
+PM2 status = stopped ❌ (because NSSM paused and killed PM2)
+NSSM = SERVICE_PAUSED ❌ (bat file fix needed)
+Fix Everything Now — Run One at a Time in PowerShell Admin
+Step 1 — Create the bat file
+powershell
+# Create logs folder if not exists
+New-Item -ItemType Directory -Force -Path "C:\Users\lenovo\Desktop\EmailSchedulerMicroService\scheduler\logs"
+Open Notepad and save this as C:\Users\lenovo\Desktop\EmailSchedulerMicroService\pm2-start.bat:
+
+bat
+@echo off
+timeout /t 15 /nobreak
+
+call "C:\Users\lenovo\AppData\Roaming\npm\pm2" resurrect
+
+:keepalive
+timeout /t 60 /nobreak
+pm2 ping >nul 2>&1
+if errorlevel 1 (
+    pm2 resurrect
+)
+goto keepalive
+Step 2 — Stop NSSM service
+powershell
+sc stop PM2-EmailScheduler
+Wait until you see STOPPED, then:
+
+Step 3 — Point NSSM to bat file
+powershell
+C:\nssm\win64\nssm.exe set PM2-EmailScheduler Application "C:\Windows\System32\cmd.exe"
+
+C:\nssm\win64\nssm.exe set PM2-EmailScheduler AppParameters "/c C:\Users\lenovo\Desktop\EmailSchedulerMicroService\pm2-start.bat"
+
+C:\nssm\win64\nssm.exe set PM2-EmailScheduler AppExit Default Restart
+
+C:\nssm\win64\nssm.exe set PM2-EmailScheduler AppRestartDelay 10000
+
+C:\nssm\win64\nssm.exe set PM2-EmailScheduler AppThrottle 30000
+Step 4 — Start PM2 workers manually first
+powershell
+pm2 restart email-scheduler-workers
+pm2 restart log-cleanup-worker
+pm2 save
+Verify they are online:
+
+powershell
+pm2 status
+Should show online not stopped.
+
+Step 5 — Start NSSM service
+powershell
+sc start PM2-EmailScheduler
+Start-Sleep -Seconds 20
+Get-Service PM2-EmailScheduler
+Should show Running not Paused.
+
+Step 6 — Final verification
+powershell
+pm2 status
+Expected Result After All Steps
+NSSM service  → Running ✅
+PM2 status    → online  ✅
+workers logs  → flowing ✅
+After reboot  → auto-starts ✅
