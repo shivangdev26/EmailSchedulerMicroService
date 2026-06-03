@@ -164,9 +164,8 @@ Start-Sleep -Seconds 15
 Get-Service PM2-EmailScheduler
 
 Also Check PM2 Status
-powershellpm2 status
-
-
+powershell
+pm2 status
 pm2 logs email-scheduler-workers --lines 50 --nostream
 
 
@@ -193,7 +192,8 @@ goto keepalive
 
 
 Step 2 — Stop NSSM service
-powershellsc stop PM2-EmailScheduler
+powershell
+sc stop PM2-EmailScheduler
 Wait until you see STOPPED, then:
 
 Step 3 — Point NSSM to bat file
@@ -208,7 +208,8 @@ C:\nssm\win64\nssm.exe set PM2-EmailScheduler AppRestartDelay 10000
 C:\nssm\win64\nssm.exe set PM2-EmailScheduler AppThrottle 30000
 
 Step 4 — Start PM2 workers manually first
-powershellpm2 restart email-scheduler-workers
+powershell
+pm2 restart email-scheduler-workers
 pm2 restart log-cleanup-worker
 pm2 save
 
@@ -221,6 +222,7 @@ Step 5 — Start NSSM service
 sc start PM2-EmailScheduler
 Start-Sleep -Seconds 20
 Get-Service PM2-EmailScheduler
+
 Should show Running not Paused.
 
 Step 6 — Final verification
