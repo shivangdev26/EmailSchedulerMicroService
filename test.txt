@@ -83,32 +83,106 @@ Check PM2 logs with pm2 logs
 Verify the node.exe path is correct in NSSM
 Make sure you ran Command Prompt as Administrator
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Fix It Now
+Step 1 — Force stop it completely
+C:\nssm\win64\nssm.exe stop PM2-EmailScheduler force
+
+# Step 2 — Start it fresh
+C:\nssm\win64\nssm.exe start PM2-EmailScheduler
+
+# Step 3 — Check status
+C:\nssm\win64\nssm.exe status PM2-EmailScheduler
+
+
+
+If that still shows PAUSED:
+powershell
+# Use Windows service commands directly
+sc stop PM2-EmailScheduler
+sc start PM2-EmailScheduler
+
+# Or PowerShell
+Stop-Service PM2-EmailScheduler -Force
+Start-Service PM2-EmailScheduler
+
+# Check status
+Get-Service PM2-EmailScheduler
+
+
+Why It Got PAUSED
+NSSM pauses a service when the application it's running exits too quickly — it thinks the app is misbehaving and pauses instead of endlessly restarting.
+This usually means the pm2 resurrect command ran, finished, and exited — which is correct behavior for a one-time command, but NSSM treats it as a crash.
+Permanent Fix — Change NSSM to Not Pause on Exit
+powershell# Tell NSSM to always restart, never pause
+C:\nssm\win64\nssm.exe set PM2-EmailScheduler AppExit Default Restart
+C:\nssm\win64\nssm.exe set PM2-EmailScheduler AppRestartDelay 10000
+
+# Then restart the service
+Stop-Service PM2-EmailScheduler -Force
+Start-Service PM2-EmailScheduler
+
+Verify PM2 Actually Came Back
+powershell# After service starts, check PM2
+pm2 status
+
+# If PM2 shows no processes, manually resurrect
+pm2 resurrect
+pm2 status
+
+# Then save again
+pm2 save
+
+Check What's in NSSM Logs
+powershell# Check your NSSM error log for the real reason
+type "C:\path\to\project\logs\nssm-error.log"
+
+# Or wherever you set AppStderr during NSSM setup
+
+
+
+You're running commands in Command Prompt (cmd), not PowerShell. That's why Stop-Service, Get-Service etc. are not recognized.
+Open PowerShell as Administrator
+Press Windows key
+Type: PowerShell
+Right-click → Run as Administrator
+Then run these:
+powershell# Step 1 — Force stop
+sc stop PM2-EmailScheduler
+
+# Step 2 — Fix the PAUSED issue permanently
+C:\nssm\win64\nssm.exe set PM2-EmailScheduler AppExit Default Restart
+C:\nssm\win64\nssm.exe set PM2-EmailScheduler AppRestartDelay 10000
+C:\nssm\win64\nssm.exe set PM2-EmailScheduler AppThrottle 30000
+
+# Step 3 — Start
+sc start PM2-EmailScheduler
+
+# Wait 15 seconds then check
+Start-Sleep -Seconds 15
+Get-Service PM2-EmailScheduler
+
+Also Check PM2 Status
+powershellpm2 status
+
+
+pm2 logs email-scheduler-workers --lines 50 --nostream
 
 
 
 
-
-
-17:52
-Good news — the workers are actually working fine. The logs show scheduling happening correctly. The stopped status in PM2 is because NSSM's SERVICE_PAUSED stopped the PM2 process.
-
-Current Status
-Workers logs = healthy ✅ (scheduling jobs, parsing correctly)
-PM2 status = stopped ❌ (because NSSM paused and killed PM2)
-NSSM = SERVICE_PAUSED ❌ (bat file fix needed)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 Fix Everything Now — Run One at a Time in PowerShell Admin
 Step 1 — Create the bat file
-powershell
-# Create logs folder if not exists
+ Create logs folder if not exists
 New-Item -ItemType Directory -Force -Path "C:\Users\lenovo\Desktop\EmailSchedulerMicroService\scheduler\logs"
+
 Open Notepad and save this as C:\Users\lenovo\Desktop\EmailSchedulerMicroService\pm2-start.bat:
 
-bat
-@echo off
+bat@echo off
 timeout /t 15 /nobreak
-
 call "C:\Users\lenovo\AppData\Roaming\npm\pm2" resurrect
-
 :keepalive
 timeout /t 60 /nobreak
 pm2 ping >nul 2>&1
@@ -116,13 +190,13 @@ if errorlevel 1 (
     pm2 resurrect
 )
 goto keepalive
+
+
 Step 2 — Stop NSSM service
-powershell
-sc stop PM2-EmailScheduler
+powershellsc stop PM2-EmailScheduler
 Wait until you see STOPPED, then:
 
 Step 3 — Point NSSM to bat file
-powershell
 C:\nssm\win64\nssm.exe set PM2-EmailScheduler Application "C:\Windows\System32\cmd.exe"
 
 C:\nssm\win64\nssm.exe set PM2-EmailScheduler AppParameters "/c C:\Users\lenovo\Desktop\EmailSchedulerMicroService\pm2-start.bat"
@@ -132,29 +206,22 @@ C:\nssm\win64\nssm.exe set PM2-EmailScheduler AppExit Default Restart
 C:\nssm\win64\nssm.exe set PM2-EmailScheduler AppRestartDelay 10000
 
 C:\nssm\win64\nssm.exe set PM2-EmailScheduler AppThrottle 30000
+
 Step 4 — Start PM2 workers manually first
-powershell
-pm2 restart email-scheduler-workers
+powershellpm2 restart email-scheduler-workers
 pm2 restart log-cleanup-worker
 pm2 save
-Verify they are online:
 
-powershell
+Verify they are online:
 pm2 status
+
 Should show online not stopped.
 
 Step 5 — Start NSSM service
-powershell
 sc start PM2-EmailScheduler
 Start-Sleep -Seconds 20
 Get-Service PM2-EmailScheduler
 Should show Running not Paused.
 
 Step 6 — Final verification
-powershell
 pm2 status
-Expected Result After All Steps
-NSSM service  → Running ✅
-PM2 status    → online  ✅
-workers logs  → flowing ✅
-After reboot  → auto-starts ✅
