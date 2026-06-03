@@ -967,6 +967,8 @@ const addRepeatJob = async (payload, cron, jobId) => {
   const existing = await emailQueue.getRepeatableJobs();
   for (const j of existing) {
     if (j.key && j.key.includes(jobId)) {
+      console.log(j);
+
       logger.info(`Removing old repeatable job`, { jobId, pattern: j.pattern });
       await emailQueue.removeRepeatableByKey(j.key);
     }

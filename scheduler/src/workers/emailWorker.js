@@ -1252,9 +1252,12 @@
 
 // module.exports = { startEmailWorker };
 
-const { Worker } = require("bullmq");
+const { Worker, Queue } = require("bullmq");
 const IORedis = require("ioredis");
 const { connection } = require("../bullmq");
+const emailQueueName = process.env.EMAIL_QUEUE_NAME || "email-scheduler";
+
+const emailQueue = new Queue(emailQueueName, { connection });
 const {
   sendEmail,
   getSendEmailUrl,
@@ -1283,8 +1286,6 @@ const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
 dayjs.extend(utc);
 dayjs.extend(timezone);
-
-const emailQueueName = process.env.EMAIL_QUEUE_NAME || "email-scheduler";
 
 //    of the shared connection doesn't kill the worker ──────────
 const createWorkerRedis = () =>
@@ -1597,28 +1598,70 @@ const startEmailWorker = () => {
               const headers = buildApiHeaders({ bearerToken: token });
               const response = await axios.get(url, { headers });
 
+              // if (response.data?.data?.length > 0) {
+              //   const freshActionData = response.data.data[0];
+              //   currentAction = {
+              //     ...action,
+              //     ...freshActionData,
+              //     // Keep schedule_details from original payload (job data)
+              //     schedule_details:
+              //       action.schedule_details || freshActionData.schedule_details,
+              //     m_emailer_action_schedule:
+              //       freshActionData.m_emailer_action_schedule,
+              //     // Make sure is_active is definitely from fresh data
+              //     is_active: freshActionData.is_active,
+              //   };
+              // }
+
               if (response.data?.data?.length > 0) {
+                const freshActionData = response.data.data[0];
+                logger.info("FRESH_API_RESPONSE", {
+                  actionId: freshActionData.id,
+                  schedule_details: freshActionData.schedule_details,
+                  schedule: freshActionData.m_emailer_action_schedule,
+                });
                 currentAction = {
-                  ...response.data.data[0],
                   ...action,
+                  ...freshActionData,
+
+                  // Use latest value from API first
+                  schedule_details:
+                    freshActionData.schedule_details || action.schedule_details,
+
                   m_emailer_action_schedule:
-                    response.data.data[0].m_emailer_action_schedule,
+                    freshActionData.m_emailer_action_schedule,
+
+                  is_active: freshActionData.is_active,
                 };
-                // Explicitly preserve original schedule_details
-                if (action.schedule_details) {
-                  currentAction.schedule_details = action.schedule_details;
-                }
-              } else if (response.data?.tblData?.length > 0) {
+              }
+              //  else if (response.data?.tblData?.length > 0) {
+              //   const freshActionData = response.data.tblData[0];
+              //   currentAction = {
+              //     ...action,
+              //     ...freshActionData,
+              //     // Keep schedule_details from original payload (job data)
+              //     schedule_details:
+              //       action.schedule_details || freshActionData.schedule_details,
+              //     m_emailer_action_schedule:
+              //       freshActionData.m_emailer_action_schedule,
+              //     // Make sure is_active is definitely from fresh data
+              //     is_active: freshActionData.is_active,
+              //   };
+              // }
+              else if (response.data?.tblData?.length > 0) {
+                const freshActionData = response.data.tblData[0];
                 currentAction = {
-                  ...response.data.tblData[0],
                   ...action,
+                  ...freshActionData,
+
+                  schedule_details:
+                    freshActionData.schedule_details || action.schedule_details,
+
                   m_emailer_action_schedule:
-                    response.data.tblData[0].m_emailer_action_schedule,
+                    freshActionData.m_emailer_action_schedule,
+
+                  is_active: freshActionData.is_active,
                 };
-                // Explicitly preserve original schedule_details
-                if (action.schedule_details) {
-                  currentAction.schedule_details = action.schedule_details;
-                }
               }
 
               logger.info("Fetched latest action details", {
@@ -1636,10 +1679,29 @@ const startEmailWorker = () => {
           }
 
           if (currentAction?.is_active !== "Y") {
-            logger.info("Skipping inactive action", {
-              actionId: action.id,
-              database: db,
-            });
+            logger.info(
+              "Skipping inactive action, removing repeatable job if exists",
+              {
+                actionId: action.id,
+                database: db,
+              },
+            );
+            // Remove any repeatable jobs for this action
+            const existingJobs = await emailQueue.getRepeatableJobs();
+            for (const job of existingJobs) {
+              if (
+                job.key.includes(`${db}-adv-${action.id}`) ||
+                job.key.includes(`${db}-daily-${action.id}`) ||
+                job.key.includes(`${db}-weekly-${action.id}`) ||
+                job.key.includes(`${db}-fallback-${action.id}`)
+              ) {
+                logger.info(
+                  `Removing repeatable job for inactive action ${action.id}`,
+                  { jobKey: job.key },
+                );
+                await emailQueue.removeRepeatableByKey(job.key);
+              }
+            }
             return;
           }
 
@@ -1649,29 +1711,65 @@ const startEmailWorker = () => {
           let parsed = null;
 
           // Try schedule_details first
-          if (currentAction.schedule_details) {
-            parsed = parseScheduleDetails(currentAction.schedule_details, tz);
-            logger.info("=== Tried parsing schedule details ===", {
-              actionId: currentAction.id,
-              hasScheduleDetails: true,
-              parsed,
-            });
-          }
-
-          // If that didn't work, try m_emailer_action_schedule
+          // if (currentAction.schedule_details) {
+          //   parsed = parseScheduleDetails(currentAction.schedule_details, tz);
+          //   logger.info("=== Tried parsing schedule details ===", {
+          //     actionId: currentAction.id,
+          //     hasScheduleDetails: true,
+          //     parsed,
+          //   });
+          // }
           if (
-            (!parsed ||
-              (parsed.type !== "ADVANCED" && parsed.type !== "WEEKLY")) &&
             currentAction.m_emailer_action_schedule &&
             currentAction.m_emailer_action_schedule.length > 0
           ) {
-            logger.info("=== Trying parseScheduleFromObject ===", {
-              actionId: currentAction.id,
-            });
             for (const scheduleObj of currentAction.m_emailer_action_schedule) {
               parsed = parseScheduleFromObject(scheduleObj, tz);
               if (parsed) break;
             }
+          }
+          //  else if (currentAction.schedule_details) {
+          //   parsed = parseScheduleDetails(currentAction.schedule_details, tz);
+          // }
+
+          // // If that didn't work, try m_emailer_action_schedule
+          // if (
+          //   (!parsed ||
+          //     (parsed.type !== "ADVANCED" && parsed.type !== "WEEKLY")) &&
+          //   currentAction.m_emailer_action_schedule &&
+          //   currentAction.m_emailer_action_schedule.length > 0
+          // ) {
+          //   logger.info("=== Trying parseScheduleFromObject ===", {
+          //     actionId: currentAction.id,
+          //   });
+          //   for (const scheduleObj of currentAction.m_emailer_action_schedule) {
+          //     parsed = parseScheduleFromObject(scheduleObj, tz);
+          //     if (parsed) break;
+          //   }
+          // }
+
+          // First use latest schedule object from API
+          if (
+            currentAction.m_emailer_action_schedule &&
+            currentAction.m_emailer_action_schedule.length > 0
+          ) {
+            logger.info("=== Trying parseScheduleFromObject FIRST ===", {
+              actionId: currentAction.id,
+            });
+
+            for (const scheduleObj of currentAction.m_emailer_action_schedule) {
+              parsed = parseScheduleFromObject(scheduleObj, tz);
+              if (parsed) break;
+            }
+          }
+
+          // Fallback to schedule_details only if schedule object parsing failed
+          if (!parsed && currentAction.schedule_details) {
+            logger.info("=== Falling back to parseScheduleDetails ===", {
+              actionId: currentAction.id,
+            });
+
+            parsed = parseScheduleDetails(currentAction.schedule_details, tz);
           }
 
           if (
