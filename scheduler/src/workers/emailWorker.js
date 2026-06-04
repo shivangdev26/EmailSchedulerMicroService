@@ -1590,6 +1590,20 @@ const startEmailWorker = () => {
           });
           const { action, smtp, db, advanced } = job.data.payload || job.data;
 
+          // ── new logic ──
+          const dedupKey = `email:dedup:job:${job.id}`;
+          const alreadySent = await workerConnection.get(dedupKey);
+          if (alreadySent) {
+            logger.warn("Duplicate email job detected, skipping", {
+              jobId: job.id,
+              actionId: action.id,
+              database: db,
+            });
+            return;
+          }
+          await workerConnection.set(dedupKey, "1", "EX", 300);
+          // ── new logic ─────────────────────────────────────────────────
+
           let currentAction = action;
           try {
             const token = await getAuthToken(connection, db);
@@ -3212,7 +3226,7 @@ const startEmailWorker = () => {
               EntityId,
               ChildId,
               CombinedIds,
-              link_expiry: linkExpiryDate, // ← now always defined
+              link_expiry: linkExpiryDate,
               response: err.message,
               retry_count: job.attemptsMade,
             });
@@ -3225,7 +3239,7 @@ const startEmailWorker = () => {
       }
     },
     {
-      connection: workerConnection, // ← dedicated connection
+      connection: workerConnection,
       concurrency,
       lockDuration,
     },
@@ -3247,7 +3261,7 @@ const startEmailWorker = () => {
   worker.on("stalled", (jobId) => logger.warn("Job stalled", { jobId }));
 
   logger.info(`Email Worker started with concurrency: ${concurrency}`);
-  return worker; // ← CRITICAL: was missing before
+  return worker;
 };
 
 module.exports = { startEmailWorker };

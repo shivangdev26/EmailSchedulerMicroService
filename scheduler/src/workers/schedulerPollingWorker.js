@@ -634,6 +634,10 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const emailQueue = new Queue(emailQueueName, { connection });
+//new logic
+let isPolling = false;
+const scheduledJobCache = new Map();
+//new logic
 
 //config
 const DB_API =
@@ -963,12 +967,40 @@ const parseScheduleTime = (timeStr) => {
 };
 
 //job
+// const addRepeatJob = async (payload, cron, jobId) => {
+//   const existing = await emailQueue.getRepeatableJobs();
+
+//   for (const j of existing) {
+//     if (j.key && j.key.includes(jobId)) {
+//       console.log(j);
+
+//       logger.info(`Removing old repeatable job`, { jobId, pattern: j.pattern });
+//       await emailQueue.removeRepeatableByKey(j.key);
+//     }
+//   }
+
+//   await emailQueue.add("send-email", payload, {
+//     repeat: { cron, tz: "UTC" },
+//     jobId,
+//   });
+
+//   logger.info(`Scheduled job`, { jobId });
+// };
+
+//job
+//new logic
 const addRepeatJob = async (payload, cron, jobId) => {
+  if (scheduledJobCache.get(jobId) === cron) {
+    logger.debug(`Job already scheduled with same cron, skipping`, {
+      jobId,
+      cron,
+    });
+    return;
+  }
+
   const existing = await emailQueue.getRepeatableJobs();
   for (const j of existing) {
     if (j.key && j.key.includes(jobId)) {
-      console.log(j);
-
       logger.info(`Removing old repeatable job`, { jobId, pattern: j.pattern });
       await emailQueue.removeRepeatableByKey(j.key);
     }
@@ -979,11 +1011,20 @@ const addRepeatJob = async (payload, cron, jobId) => {
     jobId,
   });
 
-  logger.info(`Scheduled job`, { jobId });
+  scheduledJobCache.set(jobId, cron);
+  logger.info(`Scheduled job`, { jobId, cron });
 };
+//new logic
 
 //main polling logic
 const pollScheduler = async () => {
+  // ── new logic ──
+  if (isPolling) {
+    logger.warn("Previous poll still running, skipping this cycle");
+    return;
+  }
+  isPolling = true;
+  // new logic
   try {
     const dbs = await fetchAllDatabases();
 
@@ -1434,7 +1475,11 @@ const pollScheduler = async () => {
     }
   } catch (err) {
     logger.error("Scheduler error", { error: err.message, stack: err.stack });
+  } finally {
+    //new logic
+    isPolling = false;
   }
+  //new logic
 };
 
 const startSchedulerPolling = () => {
@@ -1442,7 +1487,6 @@ const startSchedulerPolling = () => {
 
   const intervalId = setInterval(pollScheduler, POLL_INTERVAL);
 
-  // Run immediately on start
   pollScheduler().catch((err) => {
     logger.error("Initial poll failed", { error: err.message });
   });
@@ -1451,7 +1495,6 @@ const startSchedulerPolling = () => {
     pollInterval: POLL_INTERVAL,
   });
 
-  // ✅ Return an object that server.js can manage
   return {
     intervalId,
     close: async () => {
