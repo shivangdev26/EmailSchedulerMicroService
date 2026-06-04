@@ -227,3 +227,61 @@ Should show Running not Paused.
 
 Step 6 — Final verification
 pm2 status
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+# ── Service 1: Email Workers ──────────────────────────────
+C:\nssm\nssm.exe install EmailWorkers "C:\Program Files\nodejs\node.exe"
+
+C:\nssm\nssm.exe set EmailWorkers AppParameters "C:\Users\lenovo\Desktop\EmailSchedulerMicroService\scheduler\src\workers.js"
+
+C:\nssm\nssm.exe set EmailWorkers AppDirectory "C:\Users\lenovo\Desktop\EmailSchedulerMicroService\scheduler"
+
+C:\nssm\nssm.exe set EmailWorkers AppEnvironmentExtra "NODE_ENV=production" "REDIS_HOST=127.0.0.1" "REDIS_PORT=6379"
+
+C:\nssm\nssm.exe set EmailWorkers AppStdout "C:\Users\lenovo\Desktop\EmailSchedulerMicroService\scheduler\logs\nssm-workers-out.log"
+
+C:\nssm\nssm.exe set EmailWorkers AppStderr "C:\Users\lenovo\Desktop\EmailSchedulerMicroService\scheduler\logs\nssm-workers-error.log"
+
+C:\nssm\nssm.exe set EmailWorkers AppExit Default Restart
+C:\nssm\nssm.exe set EmailWorkers AppRestartDelay 10000
+C:\nssm\nssm.exe set EmailWorkers AppThrottle 30000
+C:\nssm\nssm.exe set EmailWorkers Start SERVICE_AUTO_START
+C:\nssm\nssm.exe start EmailWorkers
+
+
+# ── Service 2: Log Cleanup Worker ────────────────────────
+C:\nssm\nssm.exe install LogCleanupWorker "C:\Program Files\nodejs\node.exe"
+
+C:\nssm\nssm.exe set LogCleanupWorker AppParameters "C:\Users\lenovo\Desktop\EmailSchedulerMicroService\scheduler\src\log-cleanup-worker.js"
+
+C:\nssm\nssm.exe set LogCleanupWorker AppDirectory "C:\Users\lenovo\Desktop\EmailSchedulerMicroService\scheduler"
+
+C:\nssm\nssm.exe set LogCleanupWorker AppEnvironmentExtra "NODE_ENV=production"
+
+C:\nssm\nssm.exe set LogCleanupWorker AppStdout "C:\Users\lenovo\Desktop\EmailSchedulerMicroService\scheduler\logs\nssm-cleanup-out.log"
+
+C:\nssm\nssm.exe set LogCleanupWorker AppStderr "C:\Users\lenovo\Desktop\EmailSchedulerMicroService\scheduler\logs\nssm-cleanup-error.log"
+
+C:\nssm\nssm.exe set LogCleanupWorker AppExit Default Restart
+C:\nssm\nssm.exe set LogCleanupWorker AppRestartDelay 30000
+C:\nssm\nssm.exe set LogCleanupWorker Start SERVICE_AUTO_START
+C:\nssm\nssm.exe start LogCleanupWorker
+
+
+II. Day to Day Commands
+powershell# 
+Check status
+C:\nssm\nssm.exe status EmailWorkers
+C:\nssm\nssm.exe status LogCleanupWorker
+
+# View live logs
+Get-Content ".\logs\nssm-workers-out.log" -Wait -Tail 50
+Get-Content ".\logs\nssm-cleanup-out.log" -Wait -Tail 50
+
+# After git pull → restart
+C:\nssm\nssm.exe restart EmailWorkers
+C:\nssm\nssm.exe restart LogCleanupWorker
+
+# Stop all
+C:\nssm\nssm.exe stop EmailWorkers
+C:\nssm\nssm.exe stop LogCleanupWorker
