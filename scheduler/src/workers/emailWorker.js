@@ -1615,6 +1615,7 @@ const startEmailWorker = () => {
           }
 
           await workerConnection.set(dedupKey, "1", "EX", 120);
+
           // ── new logic ─────────────────────────────────────────────────
 
           let currentAction = action;
@@ -3239,6 +3240,7 @@ const startEmailWorker = () => {
               EntityId,
               ChildId,
               CombinedIds,
+              link_expiry: linkExpiryDate,
               link_expiry: linkExpiryDate,
               response: err.message,
               retry_count: job.attemptsMade,
