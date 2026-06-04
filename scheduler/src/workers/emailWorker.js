@@ -1591,17 +1591,30 @@ const startEmailWorker = () => {
           const { action, smtp, db, advanced } = job.data.payload || job.data;
 
           // ── new logic ──
-          const dedupKey = `email:dedup:job:${job.id}`;
+          // const dedupKey = `email:dedup:job:${job.id}`;
+          // const alreadySent = await workerConnection.get(dedupKey);
+          // if (alreadySent) {
+          //   logger.warn("Duplicate email job detected, skipping", {
+          //     jobId: job.id,
+          //     actionId: action.id,
+          //     database: db,
+          //   });
+          //   return;
+          // }
+          // await workerConnection.set(dedupKey, "1", "EX", 300);
+
+          const dedupKey = `email:action:${action.id}:${dayjs.utc().format("YYYY-MM-DD-HH-mm")}`;
           const alreadySent = await workerConnection.get(dedupKey);
+
           if (alreadySent) {
-            logger.warn("Duplicate email job detected, skipping", {
-              jobId: job.id,
+            logger.warn("Duplicate email prevented", {
               actionId: action.id,
-              database: db,
+              dedupKey,
             });
             return;
           }
-          await workerConnection.set(dedupKey, "1", "EX", 300);
+
+          await workerConnection.set(dedupKey, "1", "EX", 120);
           // ── new logic ─────────────────────────────────────────────────
 
           let currentAction = action;
