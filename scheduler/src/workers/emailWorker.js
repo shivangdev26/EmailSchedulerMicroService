@@ -1812,7 +1812,10 @@ const startEmailWorker = () => {
           }
 
           const now = dayjs().tz(tz);
-
+          logger.info("CURRENT SCHEDULE IN WORKER", {
+            actionId: currentAction.id,
+            currentSchedule,
+          });
           if (currentSchedule) {
             if (currentSchedule.type === "ADVANCED") {
               const startDate = dayjs(currentSchedule.startDate).tz(tz);
@@ -1908,6 +1911,14 @@ const startEmailWorker = () => {
                     timeSinceStart = currentTimeInMins + 1440 - startTotalMins;
                   }
                 }
+                logger.info("INTERVAL CHECK", {
+                  actionId: currentAction.id,
+                  currentTimeInMins,
+                  startTotalMins,
+                  timeSinceStart,
+                  everyMinutes: currentSchedule.everyMinutes,
+                  modulo: timeSinceStart % currentSchedule.everyMinutes,
+                });
 
                 // Check if timeSinceStart is a multiple of everyMinutes
                 if (timeSinceStart % currentSchedule.everyMinutes !== 0) {

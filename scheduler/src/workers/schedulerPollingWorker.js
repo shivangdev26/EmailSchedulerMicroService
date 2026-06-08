@@ -827,6 +827,11 @@ const parseScheduleDetails = (details, tz = "UTC") => {
       advancedGroups: advanced.slice(0),
     });
 
+    logger.info("ADVANCED REGEX GROUPS", {
+      amount: advanced[2],
+      type: advanced[3],
+      allGroups: advanced.slice(0),
+    });
     let everyDays = advanced[1] ? Number(advanced[1]) : 1;
     let everyIntervalAmount = Number(advanced[2]);
     let everyIntervalType = advanced[3].toLowerCase();
