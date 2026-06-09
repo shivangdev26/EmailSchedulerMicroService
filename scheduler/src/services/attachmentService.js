@@ -152,9 +152,9 @@ const generatePdfBuffer = (queryResults, filename = "report") => {
       const margin = 15;
       const startX = margin;
       let tableY = doc.y;
-      const cellPadding = 3;
+      const cellPadding = 2;
       const headerFontSize = 7;
-      const dataFontSize = 6;
+      const dataFontSize = 5;
 
       const colWidths = headers.map(() => 0);
       const minColWidth = 35;
@@ -206,22 +206,27 @@ const generatePdfBuffer = (queryResults, filename = "report") => {
       const drawHeaderRow = (y) => {
         doc.fontSize(headerFontSize).font("Helvetica-Bold");
         let currentX = startX;
-        const headerRowHeight = 18;
+        const headerRowHeight = 14;
 
         headers.forEach((header, colIndex) => {
           const width = colWidths[colIndex];
-          doc.rect(currentX, y, width, headerRowHeight).stroke();
-          doc.text(header, currentX + cellPadding, y + cellPadding, {
+          // Fill header background with blue and stroke border
+          doc.rect(currentX, y, width, headerRowHeight).fillAndStroke('#3b82f6', 'black');
+          // Header text in white for contrast
+          doc.fillColor('white');
+          doc.text(header.toUpperCase(), currentX + cellPadding, y + cellPadding, {
             width: width - cellPadding * 2,
             align: "left",
             baseline: "top",
           });
+          // Reset fill colour for subsequent drawing
+          doc.fillColor('black');
           currentX += width;
         });
         return headerRowHeight;
       };
 
-      const drawDataRow = (row, y) => {
+      const drawDataRow = (row, y, rowIdx = 0) => {
         doc.fontSize(dataFontSize).font("Helvetica");
 
         let maxRowHeight = 15;
@@ -235,6 +240,9 @@ const generatePdfBuffer = (queryResults, filename = "report") => {
           maxRowHeight = Math.max(maxRowHeight, textHeight);
         });
 
+        // Determine background colour for zebra striping
+        const rowBg = rowIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
+
         let currentX = startX;
         headers.forEach((header, colIndex) => {
           const width = colWidths[colIndex];
@@ -243,7 +251,10 @@ const generatePdfBuffer = (queryResults, filename = "report") => {
               ? String(row[header])
               : "";
 
-          doc.rect(currentX, y, width, maxRowHeight).stroke();
+          // Fill cell background then stroke border
+          doc.rect(currentX, y, width, maxRowHeight).fillAndStroke(rowBg, 'black');
+          // Ensure text is drawn in black
+          doc.fillColor('black');
           doc.text(value, currentX + cellPadding, y + cellPadding, {
             width: width - cellPadding * 2,
             align: "left",
@@ -257,7 +268,7 @@ const generatePdfBuffer = (queryResults, filename = "report") => {
 
       tableY += drawHeaderRow(tableY);
 
-      queryResults.forEach((row) => {
+      queryResults.forEach((row, rowIdx) => {
         let estimatedHeight = 15;
         headers.forEach((header, colIndex) => {
           const width = colWidths[colIndex];
@@ -277,7 +288,7 @@ const generatePdfBuffer = (queryResults, filename = "report") => {
           tableY += drawHeaderRow(tableY);
         }
 
-        tableY += drawDataRow(row, tableY);
+        tableY += drawDataRow(row, tableY, rowIdx);
       });
     } else {
       doc.fontSize(12).text("No data to display", { align: "center" });

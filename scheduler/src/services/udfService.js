@@ -232,27 +232,28 @@ const replaceQueryPlaceholders = (text, data) => {
       const value = data[key];
       if (value === undefined || value === null) return match;
       if (Array.isArray(value)) {
-        // Format array as HTML table
         if (value.length === 0) return "";
-        // Get keys from first item for table headers
         const keys = Object.keys(value[0]);
-        let tableHtml = "<table border='1' cellpadding='5' cellspacing='0'>";
-        // Add header row
-        tableHtml += "<thead><tr>";
+
+        let tableHtml = `<table style="width: auto; max-width: 100%; border-collapse: collapse; margin: 8px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 11px; text-align: left; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(0,0,0,0.05); border-radius: 4px; overflow: hidden;">`;
+
+        tableHtml += `<thead><tr style="background-color: #3b82f6; color: #ffffff;">`;
         keys.forEach((k) => {
-          tableHtml += `<th>${k}</th>`;
+          tableHtml += `<th style="padding: 3px; font-weight: 600; border-bottom: 1px solid #e2e8f0; border-right: 1px solid rgba(255,255,255,0.1); font-size: 11px; text-transform: uppercase;">${k}</th>`;;
         });
-        tableHtml += "</tr></thead>";
-        // Add data rows
-        tableHtml += "<tbody>";
-        value.forEach((row) => {
-          tableHtml += "<tr>";
+        tableHtml += `</tr></thead>`;
+
+        tableHtml += `<tbody>`;
+        value.forEach((row, index) => {
+          const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
+          tableHtml += `<tr style="background-color: ${rowBg};">`;
           keys.forEach((k) => {
-            tableHtml += `<td>${row[k] !== null && row[k] !== undefined ? row[k] : ""}</td>`;
+            const cellVal = row[k] !== null && row[k] !== undefined ? row[k] : "";
+            tableHtml += `<td style="padding: 3px; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; color: #475569; font-size: 11px;">${cellVal}</td>`;;
           });
-          tableHtml += "</tr>";
+          tableHtml += `</tr>`;
         });
-        tableHtml += "</tbody></table>";
+        tableHtml += `</tbody></table>`;
         return tableHtml;
       }
       return String(value);
