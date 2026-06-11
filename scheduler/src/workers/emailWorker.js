@@ -1284,6 +1284,7 @@ const logger = require("../utils/logger");
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
+const { query } = require("winston");
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
@@ -1974,7 +1975,6 @@ const startEmailWorker = () => {
                 return;
               }
 
-              // Check if today is the correct day of week
               if (now.day() !== currentSchedule.dayOfWeek) {
                 logger.info("Skipping weekly email: not the correct day", {
                   actionId: currentAction.id,
@@ -1984,7 +1984,6 @@ const startEmailWorker = () => {
                 return;
               }
 
-              // Check if current time matches the scheduled hour and minute
               if (
                 now.hour() !== currentSchedule.hour ||
                 now.minute() !== currentSchedule.minute
@@ -2047,7 +2046,6 @@ const startEmailWorker = () => {
               email_service_type: currentAction.email_service_type,
             });
 
-            // Get the raw query results
             const rawResults = queryData._rawResults || {};
             logger.info("Query data _rawResults keys", {
               actionId: currentAction.id,
@@ -2066,7 +2064,6 @@ const startEmailWorker = () => {
               tblDataSample: tblData.slice(0, 3),
             });
 
-            // Helper function to remove sensitive fields (to_email, cc_email, bcc_email) from a row
             const cleanRow = (row) => {
               const cleaned = { ...row };
               delete cleaned.to_email;
@@ -2075,21 +2072,17 @@ const startEmailWorker = () => {
               return cleaned;
             };
 
-            // FIRST: Clean _rawResults and queryData to remove sensitive fields!
             logger.info("=== Step 1: Cleaning sensitive fields from data ===", {
               actionId: currentAction.id,
             });
-            // Override ALL _rawResults keys to use cleaned data
             Object.keys(rawResults).forEach((key) => {
               if (Array.isArray(rawResults[key])) {
                 rawResults[key] = rawResults[key].map(cleanRow);
-                // Also override the same key in queryData (like query_result_0)
                 if (queryData[key]) {
                   queryData[key] = rawResults[key];
                 }
               }
             });
-            // Also override any query_result_* keys not in _rawResults
             Object.keys(queryData).forEach((key) => {
               if (
                 key.startsWith("query_result_") &&
@@ -2100,7 +2093,6 @@ const startEmailWorker = () => {
             });
             logger.info("=== Step 1 complete: Sensitive fields removed ===");
 
-            // THEN: Group by customer_code and calculate totals!
             logger.info("=== Step 2: Grouping by customer_code ===", {
               actionId: currentAction.id,
             });
@@ -2114,7 +2106,6 @@ const startEmailWorker = () => {
                   to_email: row.to_email || "",
                   cc_email: row.cc_email || "",
                   bcc_email: row.bcc_email || "",
-                  // Initialize total fields
                   total_bill_amount: 0,
                   total_paid_amount: 0,
                   total_balance_amount: 0,
@@ -2123,10 +2114,8 @@ const startEmailWorker = () => {
                   total_balance_amount_sy: 0,
                 };
               }
-              // Clean the row and add to rows
               const cleanedRow = cleanRow(row);
               acc[customerCode].rows.push(cleanedRow);
-              // Update emails if not already set
               if (!acc[customerCode].to_email && row.to_email) {
                 acc[customerCode].to_email = row.to_email;
               }
@@ -2136,7 +2125,6 @@ const startEmailWorker = () => {
               if (!acc[customerCode].bcc_email && row.bcc_email) {
                 acc[customerCode].bcc_email = row.bcc_email;
               }
-              // Sum the numeric fields
               acc[customerCode].total_bill_amount += row.bill_amount || 0;
               acc[customerCode].total_paid_amount += row.paid_amount || 0;
               acc[customerCode].total_balance_amount += row.balance_amount || 0;
@@ -2153,9 +2141,7 @@ const startEmailWorker = () => {
             });
             logger.info("=== Step 2 complete: Grouping done ===");
 
-            // Prepare grouped data for email body and attachments
             const groupedArray = Object.values(groupedData);
-            // Create a customer summary array (one entry per customer with totals)
             const customerSummary = groupedArray.map((group) => ({
               customer_code: group.customer_code,
               customer_name: group.customer_name,
@@ -2166,18 +2152,15 @@ const startEmailWorker = () => {
               total_paid_amount_sy: group.total_paid_amount_sy,
               total_balance_amount_sy: group.total_balance_amount_sy,
             }));
-            // Prepare flattened clean data for attachments (all rows with sensitive fields removed)
             const flattenedCleanData = tblData.map(cleanRow);
-            // Also prepare grouped data with all rows flattened (grouped per customer but combined)
             const groupedForAttachments = groupedArray.map((group) => ({
               ...group,
-              rows: group.rows, // already cleaned
+              rows: group.rows,
             }));
 
-            // Store in queryData so it's available for placeholder replacement
             queryData.grouped_data = groupedArray;
             queryData.clean_data = flattenedCleanData;
-            queryData.customer_summary = customerSummary; // NEW: summary per customer with totals!
+            queryData.customer_summary = customerSummary;
 
             groupedQueryData = {
               groupedArray,
@@ -2185,7 +2168,6 @@ const startEmailWorker = () => {
               groupedForAttachments,
             };
 
-            // Set flags for the new behavior
             sendPerCustomerEmails = true;
             sendAllDataEmailToCcBcc =
               toEmails.length > 0 ||
@@ -2211,7 +2193,6 @@ const startEmailWorker = () => {
                 ? `<div>${currentAction.display_name}</div>`
                 : "No content";
 
-          // Function to generate attachments for given data
           const generateAttachments = async (results) => {
             const attachments = [];
             const hasQueryData = Object.values(results).some(
@@ -2275,12 +2256,10 @@ const startEmailWorker = () => {
             return attachments;
           };
 
-          // If emailer_type is 'E', send per-customer emails and all-data email to CC/BCC
           if (sendPerCustomerEmails && groupedQueryData) {
             const { groupedArray, flattenedCleanData } = groupedQueryData;
             const allDataResults = { ...queryData._rawResults };
 
-            // 1. Send per-customer emails
             for (const group of groupedArray) {
               const customerToEmails = normalizeRecipients(group.to_email);
               if (!customerToEmails.length) {
@@ -2291,11 +2270,9 @@ const startEmailWorker = () => {
                 continue;
               }
 
-              // Create customer-specific query data
               const customerQueryData = { ...queryData };
               const customerResults = { ...allDataResults };
 
-              // Replace results with customer-specific data
               const customerSummary = [
                 {
                   customer_code: group.customer_code,
@@ -2309,7 +2286,6 @@ const startEmailWorker = () => {
                 },
               ];
 
-              // Update query_result_* keys and rawResults with customer-specific data
               const queryResultKeys = Object.keys(customerQueryData).filter(
                 (k) => k.startsWith("query_result_"),
               );
@@ -2318,16 +2294,13 @@ const startEmailWorker = () => {
                   customerQueryData[key] = group.rows;
                 });
               }
-              // Update _rawResults with customer-specific rows
               Object.keys(customerResults).forEach((key) => {
                 if (Array.isArray(customerResults[key])) {
                   customerResults[key] = group.rows;
                 }
               });
-              // Keep customer summary data available for placeholders
               customerQueryData.customer_summary = customerSummary;
 
-              // Replace placeholders with customer-specific data
               let customerSubject = subject;
               let customerTextBody = textBody;
               let customerHtmlBody = htmlBody;
@@ -2347,11 +2320,9 @@ const startEmailWorker = () => {
                 );
               }
 
-              // Generate customer-specific attachments
               const customerAttachments =
                 await generateAttachments(customerResults);
 
-              // Build and send email to this customer
               const customerEmailPayload = {
                 smtp: {
                   server: smtp.server || smtp.server_name,
@@ -2362,8 +2333,8 @@ const startEmailWorker = () => {
                 },
                 from: smtp.email_address || smtp.user_name,
                 to: customerToEmails,
-                cc: [], // Don't send CC to customer-specific emails
-                bcc: [], // Don't send BCC to customer-specific emails
+                cc: [],
+                bcc: [],
                 subject: customerSubject,
                 text: customerTextBody,
                 html: customerHtmlBody,
@@ -2409,7 +2380,6 @@ const startEmailWorker = () => {
               });
             }
 
-            // 2. Send all-data email to the configured To/CC/BCC recipients (from the emailer config)
             logger.info("=== Preparing all-data email ===", {
               actionId: currentAction.id,
               to: toEmails,
@@ -2428,7 +2398,6 @@ const startEmailWorker = () => {
                 bcc: bccEmails,
               });
 
-              // Use original data for all-data email
               let allDataSubject = subject;
               let allDataTextBody = textBody;
               let allDataHtmlBody = htmlBody;
@@ -2448,7 +2417,6 @@ const startEmailWorker = () => {
                 );
               }
 
-              // Generate all-data attachments
               const allDataAttachments =
                 await generateAttachments(allDataResults);
 
@@ -2461,9 +2429,9 @@ const startEmailWorker = () => {
                   secure: smtp.secure || smtp.is_ssl === "Y",
                 },
                 from: smtp.email_address || smtp.user_name,
-                to: toEmails, // Send to configured 'to' emails
-                cc: ccEmails, // Send to configured 'cc' emails
-                bcc: bccEmails, // Send to configured 'bcc' emails
+                to: toEmails,
+                cc: ccEmails,
+                bcc: bccEmails,
                 subject: allDataSubject,
                 text: allDataTextBody,
                 html: allDataHtmlBody,
@@ -2901,6 +2869,99 @@ const startEmailWorker = () => {
             }
           }
 
+          // if (config.emailer_type === "E") {
+          //   try {
+          //     // local UDF URL just for this block – avoids "before initialization" error
+          //     const emailQueueUrl =
+          //       process.env.UDF_QUERY_URL ||
+          //       "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/Common/UDF_query";
+
+          //     const emailQueueResponse = await axios.post(
+          //       emailQueueUrl,
+          //       { query: `select * from d_email_queue where id=${ID}` },
+          //       {
+          //         headers: {
+          //           ...buildApiHeaders({ bearerToken: token }),
+          //           "Content-Type": "application/json",
+          //         },
+          //       },
+          //     );
+
+          //     let emailQueueData = emailQueueResponse.data;
+          //     if (typeof emailQueueData === "string") {
+          //       try {
+          //         emailQueueData = JSON.parse(emailQueueData);
+          //       } catch {}
+          //     }
+
+          //     const records =
+          //       emailQueueData?.tblData ||
+          //       emailQueueData?.data ||
+          //       emailQueueData?.result ||
+          //       [];
+
+          //     if (
+          //       Array.isArray(records) &&
+          //       records.length > 0 &&
+          //       records[0].to_email
+          //     ) {
+          //       config.recipients = records[0].to_email;
+          //     }
+          //   } catch (err) {
+          //     console.error(
+          //       "Error fetching email_queue record for emailer_type E:",
+          //       err.message,
+          //     );
+          //   }
+          // }
+
+          if (config.emailer_type === "E") {
+            try {
+              const emailQueueUrl =
+                process.env.UDF_QUERY_URL ||
+                "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/Common/UDF_query";
+
+              const emailQueueResponse = await axios.post(
+                emailQueueUrl,
+                { query: `select * from d_email_queue where id=${ID}` },
+                {
+                  headers: {
+                    ...buildApiHeaders({ bearerToken: token }),
+                    "Content-Type": "application/json",
+                  },
+                },
+              );
+
+              let emailQueueData = emailQueueResponse.data;
+              if (typeof emailQueueData === "string") {
+                try {
+                  emailQueueData = JSON.parse(emailQueueData);
+                } catch {}
+              }
+
+              const records =
+                emailQueueData?.tblData ||
+                emailQueueData?.data ||
+                emailQueueData?.result ||
+                [];
+
+              if (Array.isArray(records) && records.length > 0) {
+                const row = records[0];
+
+                if (row.to_email) {
+                  config.recipients = row.to_email;
+                }
+
+                config.cc = "";
+                config.bcc = "";
+              }
+            } catch (err) {
+              console.error(
+                "Error fetching email_queue record for emailer_type E:",
+                err.message,
+              );
+            }
+          }
           // ── Attachments (declare first) ───────────────────────────────────
           let attachments = [];
           const UDF_QUERY_URL =
@@ -2919,10 +2980,8 @@ const startEmailWorker = () => {
             );
           };
 
-          // ── Email queue fetch + Layout PDF attachment ─────────────────────
           if (config.include_layout_pdf === "Y") {
             try {
-              // First, keep the original email queue fetch for recipients
               const emailQueueResponse = await axios.post(
                 UDF_QUERY_URL,
                 { query: `select * from d_email_queue where id=${ID}` },
@@ -2957,14 +3016,11 @@ const startEmailWorker = () => {
               console.error("Error fetching email_queue record:", err.message);
             }
 
-            // Now, fetch the layout PDF from the new API
             try {
-              // Get object_type from config if available, otherwise use event_name as fallback
               const object_type = config.object_type || config.event_name;
               const layoutPdfUrl =
                 "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/ReportViewer/Home/GetLayoutInPDF";
 
-              // Build URL with query parameters
               const url = new URL(layoutPdfUrl);
               url.searchParams.append("object_type", object_type);
               url.searchParams.append("database", dbName);
@@ -2973,14 +3029,12 @@ const startEmailWorker = () => {
 
               console.log(`Fetching layout PDF from: ${url.toString()}`);
 
-              // Call API to get PDF as array buffer
               const pdfResponse = await axios.get(url.toString(), {
                 responseType: "arraybuffer",
               });
 
               console.log("Layout PDF response status:", pdfResponse.status);
 
-              // Add PDF to attachments array
               attachments.push({
                 filename: `Layout_${EntityId}.pdf`,
                 content: pdfResponse.data.toString("base64"),
@@ -3002,7 +3056,6 @@ const startEmailWorker = () => {
             }
           }
 
-          // ── Dynamic placeholder data ──────────────────────────────────────
           if (EntityId && config.event_name) {
             let VL_entityId = EntityId;
             let tableNameForPlaceholders = config.event_name;
@@ -3149,13 +3202,11 @@ const startEmailWorker = () => {
             "attachments",
           );
 
-          // ── SMTP ──────────────────────────────────────────────────────────
           console.log("Fetching SMTP config");
           const smtp = await fetchSmtpConfig({ token, connection, dbName });
           if (!smtp) throw new Error("SMTP configuration unavailable");
           console.log("SMTP config received");
 
-          // ── Domain URL / confirmation links ───────────────────────────────
           try {
             const domainResponse = await fetch(
               `https://logsuitedomainverify.dcctz.com/api/get_domain_url?DBName=${dbName}`,
@@ -3173,7 +3224,6 @@ const startEmailWorker = () => {
             console.warn("Error fetching domain URL:", err.message);
           }
 
-          // ── Send ──────────────────────────────────────────────────────────
           const emailPayload = buildEmailPayloadFromConfig(
             config,
             smtp,
