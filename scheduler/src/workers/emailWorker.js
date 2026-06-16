@@ -2796,7 +2796,12 @@ const startEmailWorker = () => {
               configData.message?.toLowerCase().includes("unauthorized")
             ) {
               console.log("Detected 401 in 200 response, refreshing token...");
-              token = await getAuthToken(connection, dbName, true);
+              token = await getAuthToken(
+                connection,
+                dbName,
+                true,
+                domainData?.BLApiUrl,
+              );
               configResponse = await fetchConfig(token);
               if (configResponse?.ok) configData = await configResponse.json();
             }

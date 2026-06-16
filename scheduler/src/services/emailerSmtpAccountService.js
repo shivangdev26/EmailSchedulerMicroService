@@ -141,7 +141,7 @@ const fetchSmtpConfig = async ({
   let result = await tryFetch(token);
 
   if (!result.success && result.needsRefresh && connection && dbName) {
-    const newToken = await getAuthToken(connection, dbName, true);
+    const newToken = await getAuthToken(connection, dbName, true, blApiUrl);
     result = await tryFetch(newToken);
   }
 
