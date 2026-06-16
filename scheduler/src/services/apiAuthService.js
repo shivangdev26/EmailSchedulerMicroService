@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { replaceApiUrlPrefix } = require("./urlService");
 
 const buildApiHeaders = (options = {}) => {
   const {
@@ -96,7 +97,12 @@ const decodeJwtPayload = (token = "") => {
   }
 };
 
-const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
+const getAuthToken = async (
+  connection,
+  dbName = "",
+  forceRefresh = false,
+  blApiUrl,
+) => {
   const cacheKey = dbName ? `api_auth_token_${dbName}` : "api_auth_token";
 
   try {
@@ -113,10 +119,12 @@ const getAuthToken = async (connection, dbName = "", forceRefresh = false) => {
       }
     }
 
-    const loginUrl = process.env.LOGIN_API_URL;
-    if (!loginUrl) {
+    const baseLoginUrl = process.env.LOGIN_API_URL;
+    if (!baseLoginUrl) {
       throw new Error("LOGIN_API_URL environment variable is not defined");
     }
+    const loginUrl = replaceApiUrlPrefix(baseLoginUrl, blApiUrl);
+    console.log("Using login URL:", loginUrl);
 
     let response;
 

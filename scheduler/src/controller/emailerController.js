@@ -1,6 +1,7 @@
 const { emailQueue, connection } = require("../bullmq");
 const { getAuthToken } = require("../services/apiAuthService");
 const { updateEmailQueueStatus } = require("../services/ackService");
+const { fetchDomainData } = require("../services/urlService");
 
 const triggerEmailer = async (req, res) => {
   console.log("=== EMAILER TRIGGER API CALLED ===");
@@ -33,9 +34,19 @@ const triggerEmailer = async (req, res) => {
       });
     }
 
+    // Fetch domain data first for dynamic URLs
+    console.log("About to call fetchDomainData with dbName:", dbName);
+    const domainData = await fetchDomainData(dbName);
+    console.log("Received domainData from fetchDomainData:", domainData);
+
     let token;
     try {
-      token = await getAuthToken(connection, dbName);
+      token = await getAuthToken(
+        connection,
+        dbName,
+        false,
+        domainData?.BLApiUrl,
+      );
       if (!token) {
         return res.status(500).json({
           success: false,
@@ -64,6 +75,7 @@ const triggerEmailer = async (req, res) => {
       ChildId,
       CombinedIds,
       token,
+      domainData,
       timestamp: new Date().toISOString(),
     };
 
@@ -93,6 +105,7 @@ const triggerEmailer = async (req, res) => {
         ChildId: ChildId,
         response: "Email job received and queued",
         retry_count: 0,
+        blApiUrl: domainData?.BLApiUrl,
       });
       console.log(
         `First acknowledgment sent for event ${Email_Event_Config_Id}`,

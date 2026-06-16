@@ -1,10 +1,18 @@
 const { emailQueue, connection } = require("../bullmq");
 const { getAuthToken } = require("../services/apiAuthService");
 const { updateEmailQueueStatus } = require("../services/ackService");
+const { fetchDomainData } = require("../services/urlService");
 
 const triggerEvent = async (req, res) => {
   try {
-    const { dbName, ID, Email_Event_Config_Id } = req.body;
+    const {
+      dbName,
+      ID,
+      Email_Event_Config_Id,
+      EntityId,
+      ChildId,
+      CombinedIds,
+    } = req.body;
 
     if (!dbName || !Email_Event_Config_Id) {
       return res.status(400).json({
@@ -13,18 +21,32 @@ const triggerEvent = async (req, res) => {
       });
     }
 
-    console.log(" Received trigger:", { dbName, ID, Email_Event_Config_Id });
+    console.log("Received trigger full data:", req.body);
+
+    // Fetch domain data first for dynamic URLs
+    console.log("About to call fetchDomainData with dbName:", dbName);
+    const domainData = await fetchDomainData(dbName);
+    console.log("Received domainData from fetchDomainData:", domainData);
 
     // 1. Get auth token (from Redis or Login API)
-    const token = await getAuthToken(connection, dbName);
+    const token = await getAuthToken(
+      connection,
+      dbName,
+      false,
+      domainData?.BLApiUrl,
+    );
+    console.log("Got auth token!");
 
     // 2. Store in BullMQ
     await emailQueue.add(
       "process-email-trigger",
       {
         dbName,
-        ID, // This is the ID for acknowledgment? Or event id? User says "id, event id, db_name"
+        ID,
         Email_Event_Config_Id,
+        EntityId,
+        ChildId,
+        CombinedIds,
       },
       {
         attempts: 3,
@@ -39,10 +61,11 @@ const triggerEvent = async (req, res) => {
     await updateEmailQueueStatus({
       token,
       id: ID,
-      email_queue_id: Email_Event_Config_Id,
+      email_queue_id: ID,
       ack_status: "Y",
       status: "PENDING",
       dbName: dbName,
+      blApiUrl: domainData?.BLApiUrl,
     });
 
     return res.json({

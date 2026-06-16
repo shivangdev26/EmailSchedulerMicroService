@@ -1278,6 +1278,10 @@ const {
 const {
   processEmailQueueStatus,
 } = require("../services/emailQueueCronService");
+const {
+  fetchDomainData,
+  replaceApiUrlPrefix,
+} = require("../services/urlService");
 const axios = require("axios");
 const logger = require("../utils/logger");
 
@@ -2703,15 +2707,32 @@ const startEmailWorker = () => {
             EntityId,
             ChildId,
             CombinedIds,
+            domainData: jobDomainData,
           } = job.data;
 
           // ── set linkExpiryDate BEFORE any awaits so catch always has it ──
           // (will be overwritten below after config is fetched)
 
           let token;
+          let domainData = null;
           try {
+            // Use domainData from job if available, otherwise fetch it
+            if (jobDomainData) {
+              console.log("Using domainData from job:", jobDomainData);
+              domainData = jobDomainData;
+            } else {
+              console.log("Fetching domain data for database:", dbName);
+              domainData = await fetchDomainData(dbName);
+              console.log("Domain data fetched:", domainData);
+            }
+
             console.log("Fetching auth token for database:", dbName);
-            token = await getAuthToken(connection, dbName);
+            token = await getAuthToken(
+              connection,
+              dbName,
+              false,
+              domainData?.BLApiUrl,
+            );
             if (!token)
               throw new Error(`Authentication failed for database: ${dbName}`);
             console.log(`Auth successful for database: ${dbName}`);
@@ -2722,7 +2743,11 @@ const startEmailWorker = () => {
             );
           }
 
-          const configUrl = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerEventConfiguration/${Email_Event_Config_Id}`;
+          const baseConfigUrl = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerEventConfiguration/${Email_Event_Config_Id}`;
+          const configUrl = replaceApiUrlPrefix(
+            baseConfigUrl,
+            domainData?.BLApiUrl,
+          );
           console.log("Fetching event config from:", configUrl);
 
           const fetchConfig = async (authToken) => {
@@ -2829,7 +2854,11 @@ const startEmailWorker = () => {
               console.log("Fetching user emails for IDs:", userIds);
 
               if (userIds.length > 0) {
-                const UDF_QUERY_URL = process.env.UDF_QUERY_URL;
+                const baseUdfQueryUrl = process.env.UDF_QUERY_URL;
+                const UDF_QUERY_URL = replaceApiUrlPrefix(
+                  baseUdfQueryUrl,
+                  domainData?.BLApiUrl,
+                );
                 const userResponse = await axios.post(
                   UDF_QUERY_URL,
                   {
@@ -2917,9 +2946,13 @@ const startEmailWorker = () => {
 
           if (config.emailer_type === "E") {
             try {
-              const emailQueueUrl =
+              const baseEmailQueueUrl =
                 process.env.UDF_QUERY_URL ||
                 "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/Common/UDF_query";
+              const emailQueueUrl = replaceApiUrlPrefix(
+                baseEmailQueueUrl,
+                domainData?.BLApiUrl,
+              );
 
               const emailQueueResponse = await axios.post(
                 emailQueueUrl,
@@ -2964,8 +2997,12 @@ const startEmailWorker = () => {
           }
           // ── Attachments (declare first) ───────────────────────────────────
           let attachments = [];
-          const UDF_QUERY_URL =
+          const baseUdfQueryUrl =
             "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/Common/UDF_query";
+          const UDF_QUERY_URL = replaceApiUrlPrefix(
+            baseUdfQueryUrl,
+            domainData?.BLApiUrl,
+          );
 
           const parseTblData = (raw) => {
             let parsed = raw;
@@ -2993,6 +3030,11 @@ const startEmailWorker = () => {
                 },
               );
 
+              console.log(
+                "Email Queue API response:",
+                JSON.stringify(emailQueueResponse.data, null, 2),
+              );
+
               let emailQueueData = emailQueueResponse.data;
               if (typeof emailQueueData === "string") {
                 try {
@@ -3005,12 +3047,15 @@ const startEmailWorker = () => {
                 emailQueueData?.data ||
                 emailQueueData?.result ||
                 [];
+              console.log("Email Queue records:", records);
               if (
                 Array.isArray(records) &&
                 records.length > 0 &&
                 records[0].to_email
               ) {
+                console.log("Original config.recipients:", config.recipients);
                 config.recipients = records[0].to_email;
+                console.log("Updated config.recipients:", config.recipients);
               }
             } catch (err) {
               console.error("Error fetching email_queue record:", err.message);
@@ -3018,8 +3063,12 @@ const startEmailWorker = () => {
 
             try {
               const object_type = config.object_type || config.event_name;
-              const layoutPdfUrl =
+              const baseLayoutPdfUrl =
                 "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/ReportViewer/Home/GetLayoutInPDF";
+              const layoutPdfUrl = replaceApiUrlPrefix(
+                baseLayoutPdfUrl,
+                domainData?.BLApiUrl,
+              );
 
               const url = new URL(layoutPdfUrl);
               url.searchParams.append("object_type", object_type);
@@ -3072,6 +3121,7 @@ const startEmailWorker = () => {
               token,
               tableName: tableNameForPlaceholders,
               entityId: VL_entityId,
+              blApiUrl: domainData?.BLApiUrl,
             });
             if (dynamicData) {
               config.event_name = replacePlaceholders(
@@ -3203,25 +3253,20 @@ const startEmailWorker = () => {
           );
 
           console.log("Fetching SMTP config");
-          const smtp = await fetchSmtpConfig({ token, connection, dbName });
+          const smtp = await fetchSmtpConfig({
+            token,
+            connection,
+            dbName,
+            blApiUrl: domainData?.BLApiUrl,
+          });
           if (!smtp) throw new Error("SMTP configuration unavailable");
           console.log("SMTP config received");
 
-          try {
-            const domainResponse = await fetch(
-              `https://logsuitedomainverify.dcctz.com/api/get_domain_url?DBName=${dbName}`,
-            );
-            if (domainResponse.ok) {
-              const domainUrlData = await domainResponse.json();
-              console.log("Domain URL data:", domainUrlData);
-              if (domainUrlData?.url && config.msg_body) {
-                config.msg_body = config.msg_body
-                  .replace(/{{confirm_link}}/g, domainUrlData.url)
-                  .replace(/{{not_confirm_link}}/g, domainUrlData.url);
-              }
-            }
-          } catch (err) {
-            console.warn("Error fetching domain URL:", err.message);
+          // Use existing domainData for replacing confirm_link placeholders
+          if (domainData?.url && config.msg_body) {
+            config.msg_body = config.msg_body
+              .replace(/{{confirm_link}}/g, domainData.url)
+              .replace(/{{not_confirm_link}}/g, domainData.url);
           }
 
           const emailPayload = buildEmailPayloadFromConfig(
@@ -3261,6 +3306,7 @@ const startEmailWorker = () => {
             link_expiry: linkExpiryDate,
             response: "Email sent successfully",
             retry_count: job.attemptsMade,
+            blApiUrl: domainData?.BLApiUrl,
           });
 
           return;
@@ -3289,7 +3335,13 @@ const startEmailWorker = () => {
         if (Email_Event_Config_Id) {
           try {
             console.log("Updating failure status in updateEmailQueueStatus...");
-            const token = await getAuthToken(connection, dbName);
+            const domainData = await fetchDomainData(dbName);
+            const token = await getAuthToken(
+              connection,
+              dbName,
+              false,
+              domainData?.BLApiUrl,
+            );
             const isLastAttempt = job.attemptsMade >= 2;
             await updateEmailQueueStatus({
               token,
@@ -3302,9 +3354,9 @@ const startEmailWorker = () => {
               ChildId,
               CombinedIds,
               link_expiry: linkExpiryDate,
-              link_expiry: linkExpiryDate,
               response: err.message,
               retry_count: job.attemptsMade,
+              blApiUrl: domainData?.BLApiUrl,
             });
           } catch (ackErr) {
             console.error("Failed to update failure status:", ackErr.message);

@@ -1,4 +1,5 @@
 const { buildApiHeaders, getAuthToken } = require("./apiAuthService");
+const { replaceApiUrlPrefix } = require("./urlService");
 
 const defaultSmtpConfigUrl =
   "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerSMTPAccount/2";
@@ -75,12 +76,18 @@ const unwrapSmtpConfig = (payload) => {
 //   return unwrapped;
 // };
 
-const fetchSmtpConfig = async ({ token, connection, dbName } = {}) => {
-  const url = getSmtpConfigUrl();
+const fetchSmtpConfig = async ({
+  token,
+  connection,
+  dbName,
+  blApiUrl,
+} = {}) => {
+  const baseUrl = getSmtpConfigUrl();
+  const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
 
   const tryFetch = async (authToken, retries = 3) => {
     let lastError = null;
-    
+
     for (let i = 0; i < retries; i++) {
       try {
         const response = await fetch(url, {
@@ -117,10 +124,13 @@ const fetchSmtpConfig = async ({ token, connection, dbName } = {}) => {
         return { success: true, data: unwrapped };
       } catch (error) {
         lastError = error;
-        console.warn(`SMTP fetch attempt ${i + 1}/${retries} failed:`, error.message);
-        
+        console.warn(
+          `SMTP fetch attempt ${i + 1}/${retries} failed:`,
+          error.message,
+        );
+
         if (i < retries - 1) {
-          await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
+          await new Promise((resolve) => setTimeout(resolve, 2000 * (i + 1)));
         }
       }
     }

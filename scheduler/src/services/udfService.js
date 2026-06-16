@@ -1,5 +1,6 @@
 const axios = require("axios");
 const { buildApiHeaders } = require("./apiAuthService");
+const { replaceApiUrlPrefix } = require("./urlService");
 const dayjs = require("dayjs");
 
 /**
@@ -9,15 +10,16 @@ const dayjs = require("dayjs");
  * @param {string} params.tableName
  * @param {number} params.entityId
  * @returns {Promise<Object|null>}  */
-const fetchUdfData = async ({ token, tableName, entityId }) => {
+const fetchUdfData = async ({ token, tableName, entityId, blApiUrl }) => {
   try {
     const query = `select * FROM ${tableName} where id=${entityId}`;
     console.log(` Executing UDF Query: ${query}`);
 
-    const url = process.env.UDF_QUERY_URL;
-    if (!url) {
+    const baseUrl = process.env.UDF_QUERY_URL;
+    if (!baseUrl) {
       throw new Error("UDF_QUERY_URL environment variable is not defined");
     }
+    const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
     const res = await axios({
       method: "POST",
       url: url,
@@ -126,11 +128,12 @@ const replacePlaceholders = (text, data) => {
   });
 };
 
-const executeMultipleQueries = async ({ token, action }) => {
-  const url = process.env.UDF_QUERY_URL;
-  if (!url) {
+const executeMultipleQueries = async ({ token, action, blApiUrl }) => {
+  const baseUrl = process.env.UDF_QUERY_URL;
+  if (!baseUrl) {
     throw new Error("UDF_QUERY_URL environment variable is not defined");
   }
+  const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
 
   // console.log(`[executeMultipleQueries] Starting for action ${action.id}`);
 
@@ -239,7 +242,7 @@ const replaceQueryPlaceholders = (text, data) => {
 
         tableHtml += `<thead><tr style="background-color: #3b82f6; color: #ffffff;">`;
         keys.forEach((k) => {
-          tableHtml += `<th style="padding: 3px; font-weight: 600; border-bottom: 1px solid #e2e8f0; border-right: 1px solid rgba(255,255,255,0.1); font-size: 11px; text-transform: uppercase;">${k}</th>`;;
+          tableHtml += `<th style="padding: 3px; font-weight: 600; border-bottom: 1px solid #e2e8f0; border-right: 1px solid rgba(255,255,255,0.1); font-size: 11px; text-transform: uppercase;">${k}</th>`;
         });
         tableHtml += `</tr></thead>`;
 
@@ -248,8 +251,9 @@ const replaceQueryPlaceholders = (text, data) => {
           const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
           tableHtml += `<tr style="background-color: ${rowBg};">`;
           keys.forEach((k) => {
-            const cellVal = row[k] !== null && row[k] !== undefined ? row[k] : "";
-            tableHtml += `<td style="padding: 3px; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; color: #475569; font-size: 11px;">${cellVal}</td>`;;
+            const cellVal =
+              row[k] !== null && row[k] !== undefined ? row[k] : "";
+            tableHtml += `<td style="padding: 3px; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; color: #475569; font-size: 11px;">${cellVal}</td>`;
           });
           tableHtml += `</tr>`;
         });

@@ -1,5 +1,6 @@
 const axios = require("axios");
 const { buildApiHeaders } = require("./apiAuthService");
+const { replaceApiUrlPrefix } = require("./urlService");
 
 /**
  *
@@ -30,6 +31,7 @@ const updateEmailQueueStatus = async ({
   response = "",
   retry_count = 0,
   link_expiry,
+  blApiUrl,
 }) => {
   try {
     const payload = {
@@ -46,21 +48,29 @@ const updateEmailQueueStatus = async ({
       },
       m_approval_request: [],
       removeChildren: [],
-      email_queue_id: email_queue_id,
+      email_queue_id: id,
       tgr_status: tgr_status,
       ack_status: ack_status,
       status: status,
       response: response,
       retry_count: retry_count,
-      link_expiry: link_expiry,
-      cron_run: "N",
     };
 
-    const url = process.env.EMAILER_ACK_URL;
-    if (!url) {
+    // Only add optional fields if they are provided
+    if (link_expiry) {
+      payload.link_expiry = link_expiry;
+    }
+
+    const baseUrl = process.env.EMAILER_ACK_URL;
+    if (!baseUrl) {
       throw new Error("EMAILER_ACK_URL environment variable is not defined");
     }
+    const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
     console.log(` Calling Acknowledgment API: ${url}`);
+    console.log(
+      ` Acknowledgment API Payload:`,
+      JSON.stringify(payload, null, 2),
+    );
     const res = await axios({
       method: "POST",
       url: url,
