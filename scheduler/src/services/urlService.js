@@ -9,10 +9,8 @@ const replaceApiUrlPrefix = (baseUrl, blApiUrl) => {
     console.log(`Using original API URL: ${baseUrl}`);
     return baseUrl;
   }
-  // Clean blApiUrl before using
   const cleanedBlApiUrl = String(blApiUrl).replace(/[`\s]/g, "");
 
-  // For all other URLs (API endpoints)
   const prefixPattern = /^https?:\/\/[^/]+\/DCCLogisticsSuite\/[^/]+/;
   const dynamicUrl = baseUrl.replace(prefixPattern, cleanedBlApiUrl);
 
@@ -36,7 +34,6 @@ const fetchDomainData = async (dbName) => {
         "Domain API response data (raw):",
         JSON.stringify(data, null, 2),
       );
-      // Clean up any extra backticks and whitespace
       const cleanedData = {
         ...data,
         url: data.url ? String(data.url).replace(/[`\s]/g, "") : data.url,

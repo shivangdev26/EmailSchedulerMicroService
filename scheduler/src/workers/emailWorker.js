@@ -3122,6 +3122,45 @@ const startEmailWorker = () => {
               tableNameForPlaceholders = "d_fm_shipmentorder";
             }
 
+            if (
+              config.event_name === "d_cf_filemaster_attachment" &&
+              CombinedIds
+            ) {
+              try {
+                const response = await axios.post(
+                  UDF_QUERY_URL,
+                  {
+                    query: `select top 1 * from d_cf_filemaster_attachment where id in (${CombinedIds}) order by id desc`,
+                  },
+                  {
+                    headers: {
+                      ...buildApiHeaders({ bearerToken: token }),
+                      "Content-Type": "application/json",
+                    },
+                  },
+                );
+
+                const tblData = parseTblData(response.data);
+
+                if (tblData.length > 0) {
+                  const containerNo = tblData[0].container_no || "";
+
+                  console.log("Fetched container_no:", containerNo);
+
+                  config.title = (config.title || "").replace(
+                    /{{container_no}}/gi,
+                    containerNo,
+                  );
+
+                  config.msg_body = (config.msg_body || "").replace(
+                    /{{container_no}}/gi,
+                    containerNo,
+                  );
+                }
+              } catch (err) {
+                console.error("Error fetching container_no:", err.message);
+              }
+            }
             const dynamicData = await fetchUdfData({
               token,
               tableName: tableNameForPlaceholders,
@@ -3279,10 +3318,19 @@ const startEmailWorker = () => {
             smtp,
             attachments,
           );
-          console.log(
-            "Built email payload:",
-            JSON.stringify(emailPayload, null, 2),
-          );
+          // console.log(
+          //   "Built email payload:",
+          //   JSON.stringify(emailPayload, null, 2),
+          // );
+          console.log("Built email payload:", {
+            ...emailPayload,
+            attachments: emailPayload.attachments?.map((a) => ({
+              filename: a.filename,
+              contentType: a.contentType,
+              encoding: a.encoding,
+              contentLength: a.content?.length || 0,
+            })),
+          });
 
           if (!emailPayload.to.length) {
             console.warn(
