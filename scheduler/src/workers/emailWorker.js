@@ -4065,21 +4065,22 @@ const startEmailWorker = () => {
 
                 if (tblData.length > 0) {
                   const containerNo = tblData[0].container_no || "";
+                  const remarks = tblData[0].remarks || "";
 
-                  console.log("Fetched container_no:", containerNo);
+                  console.log("Fetched container_no:", containerNo, "remarks:", remarks);
 
-                  config.title = (config.title || "").replace(
-                    /{{container_no}}/gi,
-                    containerNo,
-                  );
+                  config.title = (config.title || "")
+                    .replace(/{{container_no}}/gi, containerNo)
+                    .replace(/{{remarks}}/gi, remarks);
 
-                  config.msg_body = (config.msg_body || "").replace(
-                    /{{container_no}}/gi,
-                    containerNo,
-                  );
+                  config.msg_body = (config.msg_body || "")
+                    .replace(/{{container_no}}/gi, containerNo)
+                    .replace(/{{remarks}}/gi, remarks);
+
+
                 }
               } catch (err) {
-                console.error("Error fetching container_no:", err.message);
+                console.error("Error fetching container_no and remarks:", err.message);
               }
             }
             const dynamicData = await fetchUdfData({
