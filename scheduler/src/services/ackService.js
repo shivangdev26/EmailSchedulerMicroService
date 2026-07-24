@@ -52,7 +52,7 @@ const updateEmailQueueStatus = async ({
       tgr_status: tgr_status,
       ack_status: ack_status,
       status: status,
-      response: response,
+      response: String(response || "").substring(0, 100),
       retry_count: retry_count,
     };
 

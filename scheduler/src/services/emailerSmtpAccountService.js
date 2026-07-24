@@ -81,8 +81,16 @@ const fetchSmtpConfig = async ({
   connection,
   dbName,
   blApiUrl,
+  emailAccountId,
 } = {}) => {
-  const baseUrl = getSmtpConfigUrl();
+  let baseUrl = getSmtpConfigUrl();
+  if (emailAccountId) {
+    if (/\/(\d+)\/?$/.test(baseUrl)) {
+      baseUrl = baseUrl.replace(/\/(\d+)\/?$/, `/${emailAccountId}`);
+    } else {
+      baseUrl = baseUrl.replace(/\/$/, "") + `/${emailAccountId}`;
+    }
+  }
   const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
 
   const tryFetch = async (authToken, retries = 3) => {

@@ -2488,14 +2488,49 @@ const parseScheduleFromObject = (scheduleObj, tz = "UTC") => {
 
 const buildEmailPayloadFromConfig = (config, smtp, attachments = []) => {
   if (!smtp) throw new Error("Missing SMTP");
+
+  const server = (
+    smtp.server ||
+    smtp.Server ||
+    smtp.server_name ||
+    smtp.Server_Name ||
+    smtp.host ||
+    smtp.Host ||
+    ""
+  ).trim();
+
+  const email = (
+    smtp.email ||
+    smtp.Email ||
+    smtp.user_name ||
+    smtp.User_Name ||
+    smtp.email_address ||
+    smtp.Email_Address ||
+    ""
+  ).trim();
+
+  const password = smtp.password || smtp.Password || "";
+
+  const port = smtp.port || smtp.Port || smtp.port_number || smtp.Port_Number;
+
+  const from = (
+    smtp.email_address ||
+    smtp.Email_Address ||
+    smtp.user_name ||
+    smtp.User_Name ||
+    smtp.email ||
+    smtp.Email ||
+    ""
+  ).trim();
+
   const payload = {
     smtp: {
-      server: smtp.server || smtp.server_name,
-      email: smtp.email || smtp.user_name,
-      password: smtp.password,
-      port: smtp.port || smtp.port_number,
+      server,
+      email,
+      password,
+      port,
     },
-    from: smtp.email_address || smtp.user_name,
+    from,
     to: normalizeRecipients(config.recipients),
     cc: normalizeRecipients(config.cc),
     bcc: normalizeRecipients(config.bcc),
@@ -4224,6 +4259,7 @@ const startEmailWorker = () => {
             connection,
             dbName,
             blApiUrl: domainData?.BLApiUrl,
+            emailAccountId: config.email_account || config.Email_Account,
           });
           if (!smtp) throw new Error("SMTP configuration unavailable");
           console.log("SMTP config received");
