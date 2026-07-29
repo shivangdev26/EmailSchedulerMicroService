@@ -265,9 +265,243 @@ const replaceQueryPlaceholders = (text, data) => {
   );
 };
 
+//new change
+
+/**
+ * Resolves dot-notation placeholders like {{user.name}} by fetching the relation ID
+ * from the attachment record, querying the corresponding table, and replacing it.
+ *
+ * @param {Object} params
+ * @param {string} params.text
+ * @param {Object} params.attachmentRecord
+ * @param {string} params.token
+ * @param {string} params.blApiUrl
+ * @returns {Promise<string>}
+ */
+const resolveDotPlaceholders = async ({ text, attachmentRecord, token, blApiUrl }) => {
+  if (!text || !attachmentRecord) return text || "";
+
+  const dotRegex = /\{\{([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\}\}/g;
+  const matches = [];
+  let match;
+  while ((match = dotRegex.exec(text)) !== null) {
+    const fullMatch = match[0];
+    const relation = match[1];
+    const field = match[2];
+    if (!matches.some(m => m.fullMatch === fullMatch)) {
+      matches.push({ fullMatch, relation, field });
+    }
+  }
+
+  if (matches.length === 0) return text;
+
+  let resultText = text;
+  const baseUrl = process.env.UDF_QUERY_URL;
+  if (!baseUrl) {
+    throw new Error("UDF_QUERY_URL environment variable is not defined");
+  }
+  const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
+
+  for (const item of matches) {
+    const { fullMatch, relation, field } = item;
+
+
+    const isZero = (val) => val !== undefined && val !== null && (val === 0 || val === "0");
+
+    if (
+      isZero(attachmentRecord[field]) ||
+      isZero(attachmentRecord[`${field}_id`]) ||
+      isZero(attachmentRecord[`${relation}_id`]) ||
+      isZero(attachmentRecord[relation])
+    ) {
+      console.log(`[resolveDotPlaceholders] FK value for ${relation}.${field} is 0 (unset). Replacing ${fullMatch} with empty string.`);
+      const escapedMatch = fullMatch.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const replRegex = new RegExp(escapedMatch, 'gi');
+      resultText = resultText.replace(replRegex, "");
+      continue;
+    }
+
+    const isValidId = (val) => {
+      if (val === undefined || val === null || val === "") return false;
+      const num = Number(val);
+      return !isNaN(num) && num > 0;
+    };
+
+    let relationId;
+    if (isValidId(attachmentRecord[field])) {
+      relationId = attachmentRecord[field];
+    } else if (isValidId(attachmentRecord[`${field}_id`])) {
+      relationId = attachmentRecord[`${field}_id`];
+    } else {
+      const strippedField = typeof field === 'string' ? field.replace(/_no|_id/g, '') : '';
+      const mappedField = typeof field === 'string' ? field.replace(/_no/g, '_id') : '';
+      if (strippedField && isValidId(attachmentRecord[strippedField])) {
+        relationId = attachmentRecord[strippedField];
+      } else if (mappedField && isValidId(attachmentRecord[mappedField])) {
+        relationId = attachmentRecord[mappedField];
+      } else if (isValidId(attachmentRecord[`${relation}_id`])) {
+        relationId = attachmentRecord[`${relation}_id`];
+      } else if (isValidId(attachmentRecord[relation])) {
+        relationId = attachmentRecord[relation];
+      } else if (isValidId(attachmentRecord.id)) {
+        relationId = attachmentRecord.id;
+      }
+    }
+
+    if (relationId === undefined || relationId === null) {
+      console.warn(`[resolveDotPlaceholders] No ID found in attachment record for relation: ${relation}`);
+      continue;
+    }
+
+    const candidates = [
+      relation,
+      `m_${relation}_master`,
+      relation.endsWith("s") ? relation : `${relation}s`
+    ];
+
+    let tblData = [];
+    let succeeded = false;
+
+    const getPrimaryKeyColumn = async (tableName) => {
+      try {
+        const pkQuery = `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_NAME = '${tableName}'`;
+        const res = await axios({
+          method: "POST",
+          url: url,
+          headers: {
+            ...buildApiHeaders({ bearerToken: token }),
+            "Content-Type": "application/json",
+          },
+          data: { query: pkQuery },
+        });
+
+        let responseData = res.data;
+        if (typeof responseData === "string") {
+          try {
+            responseData = JSON.parse(responseData);
+          } catch { }
+        }
+
+        const rows = responseData?.tblData || responseData?.data || responseData?.result || [];
+        if (rows.length > 0) {
+          const colName = rows[0].COLUMN_NAME || rows[0].column_name || rows[0].columN_NAME || rows[0].ColumN_Name;
+          if (colName) return colName;
+        }
+      } catch (err) {
+        console.error(`[resolveDotPlaceholders] Error fetching PK for ${tableName}:`, err.message);
+      }
+      return "id";
+    };
+
+    const runQuery = async (tableName) => {
+      const pkColumn = await getPrimaryKeyColumn(tableName);
+      const query = `select * from ${tableName} where ${pkColumn} = ${relationId}`;
+      console.log(`[resolveDotPlaceholders] Trying table '${tableName}' on PK '${pkColumn}': ${query}`);
+      const res = await axios({
+        method: "POST",
+        url: url,
+        headers: {
+          ...buildApiHeaders({ bearerToken: token }),
+          "Content-Type": "application/json",
+        },
+        data: { query },
+      });
+
+      let responseData = res.data;
+      if (typeof responseData === "string") {
+        try {
+          responseData = JSON.parse(responseData);
+        } catch { }
+      }
+
+      if (responseData && responseData.succeeded === false) {
+        return null;
+      }
+      return responseData?.tblData || responseData?.data || responseData?.result || [];
+    };
+
+    for (const tableName of candidates) {
+      try {
+        const parsed = await runQuery(tableName);
+        if (parsed && parsed.length > 0) {
+          tblData = parsed;
+          succeeded = true;
+          break;
+        }
+      } catch (err) {
+      }
+    }
+
+    if (!succeeded) {
+      try {
+        console.log(`[resolveDotPlaceholders] No candidate matched. Searching database schema for relation: ${relation}`);
+        const schemaQuery = `SELECT TOP 1 TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME LIKE '%${relation}%' OR REPLACE(TABLE_NAME, '_', '') LIKE '%${relation}%' ORDER BY CASE WHEN TABLE_NAME LIKE '%_header' THEN 1 ELSE 2 END`;
+        const res = await axios({
+          method: "POST",
+          url: url,
+          headers: {
+            ...buildApiHeaders({ bearerToken: token }),
+            "Content-Type": "application/json",
+          },
+          data: { query: schemaQuery },
+        });
+
+        let responseData = res.data;
+        if (typeof responseData === "string") {
+          try {
+            responseData = JSON.parse(responseData);
+          } catch { }
+        }
+
+        const schemaRows = responseData?.tblData || responseData?.data || responseData?.result || [];
+        if (schemaRows.length > 0) {
+          const matchedTable = schemaRows[0].TABLE_NAME || schemaRows[0].table_name || schemaRows[0].tablE_NAME;
+          if (matchedTable) {
+            console.log(`[resolveDotPlaceholders] Found fuzzy matched table: ${matchedTable}`);
+            const parsed = await runQuery(matchedTable);
+            if (parsed && parsed.length > 0) {
+              tblData = parsed;
+              succeeded = true;
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`[resolveDotPlaceholders] Schema search error for ${relation}:`, err.message);
+      }
+    }
+
+    if (succeeded && tblData.length > 0) {
+      const relRecord = tblData[0];
+      const relKeys = Object.keys(relRecord);
+
+      let fieldValue;
+      if (relRecord['name'] !== undefined && relRecord['name'] !== null) {
+        fieldValue = relRecord['name'];
+      } else if (relKeys.length >= 2) {
+        const secondKey = relKeys[1];
+        fieldValue = relRecord[secondKey] !== undefined && relRecord[secondKey] !== null ? relRecord[secondKey] : "";
+      } else {
+        fieldValue = relRecord[field] !== undefined && relRecord[field] !== null ? relRecord[field] : "";
+      }
+
+      const escapedMatch = fullMatch.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const replRegex = new RegExp(escapedMatch, 'gi');
+      resultText = resultText.replace(replRegex, fieldValue);
+
+      console.log(`[resolveDotPlaceholders] Successfully replaced ${fullMatch} with: ${fieldValue}`);
+    } else {
+      console.warn(`[resolveDotPlaceholders] Failed to resolve relation details for ${fullMatch}`);
+    }
+  }
+
+  return resultText;
+};
+//new change
+
 module.exports = {
   fetchUdfData,
   replacePlaceholders,
   executeMultipleQueries,
   replaceQueryPlaceholders,
+  resolveDotPlaceholders,
 };

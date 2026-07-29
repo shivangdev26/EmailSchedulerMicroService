@@ -2212,6 +2212,7 @@ const {
   replacePlaceholders,
   executeMultipleQueries,
   replaceQueryPlaceholders,
+  resolveDotPlaceholders,
 } = require("../services/udfService");
 const {
   generateExcelBuffer,
@@ -2234,7 +2235,6 @@ const { query } = require("winston");
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-//    of the shared connection doesn't kill the worker ──────────
 const createWorkerRedis = () =>
   new IORedis({
     host: process.env.REDIS_HOST || "127.0.0.1",
@@ -4113,6 +4113,30 @@ const startEmailWorker = () => {
                     .replace(/{{remarks}}/gi, remarks);
 
 
+                  //new change
+                  for (const key of Object.keys(tblData[0])) {
+                    const val = tblData[0][key] !== null && tblData[0][key] !== undefined ? String(tblData[0][key]) : "";
+                    const regex = new RegExp(`{{${key}}}`, 'gi');
+                    config.title = config.title.replace(regex, val);
+                    config.msg_body = config.msg_body.replace(regex, val);
+                  }
+
+
+                  config.title = await resolveDotPlaceholders({
+                    text: config.title,
+                    attachmentRecord: tblData[0],
+                    token,
+                    blApiUrl: domainData?.BLApiUrl,
+                  });
+
+                  config.msg_body = await resolveDotPlaceholders({
+                    text: config.msg_body,
+                    attachmentRecord: tblData[0],
+                    token,
+                    blApiUrl: domainData?.BLApiUrl,
+                  });
+                  //new change
+
                 }
               } catch (err) {
                 console.error("Error fetching container_no and remarks:", err.message);
@@ -4134,6 +4158,23 @@ const startEmailWorker = () => {
                 config.msg_body,
                 dynamicData,
               );
+              //new change
+
+              config.title = await resolveDotPlaceholders({
+                text: config.title,
+                attachmentRecord: dynamicData,
+                token,
+                blApiUrl: domainData?.BLApiUrl,
+              });
+
+              config.msg_body = await resolveDotPlaceholders({
+                text: config.msg_body,
+                attachmentRecord: dynamicData,
+                token,
+                blApiUrl: domainData?.BLApiUrl,
+              });
+              //new change
+
             }
           }
 
