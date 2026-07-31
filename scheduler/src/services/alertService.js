@@ -11,29 +11,39 @@ const logger = require("../utils/logger");
  * @returns {Promise<Array>}
  */
 const fetchAlertSetups = async ({ token, blApiUrl }) => {
-  try {
-    const baseUrl = "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/AlertSetup";
-    const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
-    
-    logger.info(`Fetching Alert Setups`, { url });
-    const res = await axios.get(url, {
-      headers: buildApiHeaders({ bearerToken: token }),
-    });
 
-    let data = res.data?.data || res.data?.tblData || [];
-    
-    if (data && !Array.isArray(data)) {
-      data = [data];
+  for (const baseUrl of candidateBaseUrls) {
+    try {
+      const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
+      logger.info(`Fetching Alert Setups`, { url });
+
+      const res = await axios.get(url, {
+        headers: buildApiHeaders({ bearerToken: token }),
+      });
+
+      let data = res.data?.data || res.data?.tblData || [];
+      if (data && !Array.isArray(data)) {
+        data = [data];
+      }
+
+      if (data && data.length > 0) {
+        return data;
+      }
+
+      // If succeeded with empty data or valid response, return it
+      if (res.data?.succeeded) {
+        return Array.isArray(data) ? data : [];
+      }
+    } catch (err) {
+      if (err.response?.status !== 404) {
+        logger.error(`Failed to fetch Alert Setups from URL`, {
+          error: err.message,
+          status: err.response?.status,
+        });
+      }
     }
-    
-    return data;
-  } catch (err) {
-    logger.error(`Failed to fetch Alert Setups`, {
-      error: err.message,
-      status: err.response?.status,
-    });
-    return [];
   }
+  return [];
 };
 
 /**
@@ -43,7 +53,7 @@ const fetchAlertSetupById = async ({ token, blApiUrl, id }) => {
   try {
     const baseUrl = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/AlertSetup/${id}`;
     const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
-    
+
     logger.info(`Fetching Alert Setup by ID`, { url, id });
     const res = await axios.get(url, {
       headers: buildApiHeaders({ bearerToken: token }),
@@ -53,7 +63,7 @@ const fetchAlertSetupById = async ({ token, blApiUrl, id }) => {
     if (data && !Array.isArray(data)) {
       data = [data];
     }
-    
+
     return data.length > 0 ? data[0] : null;
   } catch (err) {
     logger.error(`Failed to fetch Alert Setup ${id}`, {
@@ -78,7 +88,7 @@ const executeAlertQuery = async ({ token, query, blApiUrl }) => {
 
     const baseUrl = "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/Common/UDF_query";
     const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
-    
+
     const res = await axios({
       method: "POST",
       url: url,

@@ -73,7 +73,8 @@ const addRepeatJob = async (payload, cron, jobId) => {
 
 const buildCronExpression = (freqName, interval) => {
   if (!interval || interval <= 0) interval = 1;
-  switch (freqName) {
+  const code = String(freqName || "").trim().toUpperCase();
+  switch (code) {
     case "N": // Minutes
       if (interval >= 60) return "* * * * *"; // Over 60 mins -> worker will check
       return `*/${interval} * * * *`;
@@ -82,7 +83,6 @@ const buildCronExpression = (freqName, interval) => {
     case "D": // Days
       return `0 0 */${interval} * *`;
     case "W": // Weeks
-      // Example: every week on Sunday
       return `0 0 * * 0`;
     case "M": // Months
       return `0 0 1 */${interval} *`;

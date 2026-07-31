@@ -1,5 +1,4 @@
 const replaceApiUrlPrefix = (baseUrl, blApiUrl) => {
-  // Skip ReportViewer URLs entirely
   if (baseUrl.includes("/ReportViewer/")) {
     console.log(`Using original ReportViewer URL: ${baseUrl}`);
     return baseUrl;

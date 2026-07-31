@@ -46,6 +46,57 @@ router.post(
   triggerEmailer,
 );
 
+router.post("/alerts/test", async (req, res) => {
+  const { fetchDomainData } = require("../services/urlService");
+  const { getAuthToken } = require("../services/apiAuthService");
+  const { fetchAlertSetups, executeAlertQuery } = require("../services/alertService");
+  const { connection } = require("../bullmq");
+
+  const dbName = req.body.dbName || "DCCBusinessSuite_mowara_test";
+  try {
+    const domainData = await fetchDomainData(dbName);
+    if (!domainData || !domainData.BLApiUrl) {
+      return res.status(400).json({ success: false, error: "Could not fetch BLApiUrl for dbName: " + dbName });
+    }
+
+    const token = await getAuthToken(connection, dbName, true, domainData.BLApiUrl);
+    const alertSetups = await fetchAlertSetups({ token, blApiUrl: domainData.BLApiUrl });
+
+    const results = [];
+    for (const alert of alertSetups) {
+      let queryResult = null;
+      if (alert.alert_query) {
+        queryResult = await executeAlertQuery({
+          token,
+          query: alert.alert_query,
+          blApiUrl: domainData.BLApiUrl
+        });
+      }
+
+      const eligibleUsers = (alert.m_alert_setup_user || []).filter(u => u.alert === "Y");
+      results.push({
+        alertId: alert.id,
+        title: alert.title,
+        isActive: alert.is_active,
+        query: alert.alert_query,
+        eligibleUsers,
+        queryResultCount: Array.isArray(queryResult) ? queryResult.length : 0,
+        queryResult
+      });
+    }
+
+    res.json({
+      success: true,
+      dbName,
+      blApiUrl: domainData.BLApiUrl,
+      alertCount: alertSetups.length,
+      alerts: results
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Log routes with static password authentication
 router.get("/logs", authenticate, listLogFiles);
 router.get("/logs/download-all", authenticate, downloadAllLogs);

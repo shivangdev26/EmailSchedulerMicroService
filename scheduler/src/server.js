@@ -912,8 +912,12 @@ const { Queue } = require("bullmq");
 const IORedis = require("ioredis");
 const logger = require("./utils/logger");
 const { startEmailWorker } = require("./workers/emailWorker");
+const { startAlertWorker } = require("./workers/alertWorker");
+const { startAlertPolling } = require("./workers/alertPollingWorker");
 
 let emailWorker = null;
+let alertWorker = null;
+let alertPollingWorker = null;
 
 let isShuttingDown = false;
 let redisConnectionAttempts = 0;
@@ -935,12 +939,12 @@ const clearAllTimers = () => {
   activeIntervals.forEach((id) => {
     try {
       clearInterval(id);
-    } catch (e) {}
+    } catch (e) { }
   });
   activeTimeouts.forEach((id) => {
     try {
       clearTimeout(id);
-    } catch (e) {}
+    } catch (e) { }
   });
   activeIntervals.length = 0;
   activeTimeouts.length = 0;
@@ -984,6 +988,8 @@ const createRedisConnection = () => {
 
   return connection;
 };
+
+
 
 process.on("uncaughtException", (err) => {
   logger.error("UNCAUGHT EXCEPTION", {
@@ -1047,6 +1053,14 @@ const gracefulShutdown = async (signal) => {
       console.log("Closing email worker...");
       await emailWorker.close();
     }
+    if (alertWorker) {
+      console.log("Closing alert worker...");
+      await alertWorker.close();
+    }
+    if (alertPollingWorker && typeof alertPollingWorker.close === "function") {
+      console.log("Closing alert polling worker...");
+      await alertPollingWorker.close();
+    }
     await emailQueue.close();
     await connection.quit();
     clearTimeout(forceExit);
@@ -1074,6 +1088,14 @@ server = app.listen(PORT, "0.0.0.0", async () => {
   console.log("Starting email worker...");
   emailWorker = startEmailWorker();
   console.log("Email worker started successfully");
+
+  console.log("Starting alert worker...");
+  alertWorker = startAlertWorker();
+  console.log("Alert worker started successfully");
+
+  console.log("Starting alert polling worker...");
+  alertPollingWorker = startAlertPolling();
+  console.log("Alert polling worker started successfully");
 
   const isIISNode = typeof process.env.IISNODE_VERSION !== "undefined";
   if (isIISNode) {
