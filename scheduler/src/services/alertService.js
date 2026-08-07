@@ -10,40 +10,31 @@ const logger = require("../utils/logger");
  * @param {string} params.blApiUrl
  * @returns {Promise<Array>}
  */
-const fetchAlertSetups = async ({ token, blApiUrl }) => {
+const fetchAlertSetups = async ({ token, blApiUrl, id = 1 }) => {
+  try {
+    const baseUrl = id
+      ? `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/AlertSetup/${id}`
+      : "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/AlertSetup";
+    const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
 
-  for (const baseUrl of candidateBaseUrls) {
-    try {
-      const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
-      logger.info(`Fetching Alert Setups`, { url });
+    logger.info(`Fetching Alert Setups`, { url });
+    const res = await axios.get(url, {
+      headers: buildApiHeaders({ bearerToken: token }),
+    });
 
-      const res = await axios.get(url, {
-        headers: buildApiHeaders({ bearerToken: token }),
-      });
-
-      let data = res.data?.data || res.data?.tblData || [];
-      if (data && !Array.isArray(data)) {
-        data = [data];
-      }
-
-      if (data && data.length > 0) {
-        return data;
-      }
-
-      // If succeeded with empty data or valid response, return it
-      if (res.data?.succeeded) {
-        return Array.isArray(data) ? data : [];
-      }
-    } catch (err) {
-      if (err.response?.status !== 404) {
-        logger.error(`Failed to fetch Alert Setups from URL`, {
-          error: err.message,
-          status: err.response?.status,
-        });
-      }
+    let data = res.data?.data || res.data?.tblData || [];
+    if (data && !Array.isArray(data)) {
+      data = [data];
     }
+
+    return data;
+  } catch (err) {
+    logger.error(`Failed to fetch Alert Setups`, {
+      error: err.message,
+      status: err.response?.status,
+    });
+    return [];
   }
-  return [];
 };
 
 /**

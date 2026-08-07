@@ -22,7 +22,6 @@ const cleanupLogs = () => {
           console.log(`[LogCleanup] Truncated: ${file}`);
         }
       } catch (err) {
-        // Ignore errors for individual files
       }
     }
   } catch (err) {

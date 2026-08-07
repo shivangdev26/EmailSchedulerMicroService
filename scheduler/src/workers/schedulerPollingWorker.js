@@ -1483,7 +1483,6 @@ const pollScheduler = async () => {
           });
           continue;
         }
-        // Don't skip if emailer_type or email_service_type is "E" (dynamic recipients from query)
         const isDynamicEmailType =
           action.emailer_type === "E" || action.email_service_type === "E";
         const to = normalizeRecipients(action.to);
@@ -1512,7 +1511,6 @@ const pollScheduler = async () => {
             m_emailer_action_schedule: action.m_emailer_action_schedule,
           });
 
-          // Priority 1: Use schedule_details if available
           if (action.schedule_details && action.schedule_details.trim()) {
             logger.info(
               "=== Trying to parse schedule_details (priority 1) ===",
@@ -1540,7 +1538,6 @@ const pollScheduler = async () => {
             }
           }
 
-          // Priority 2: Only use m_emailer_action_schedule if schedule_details is missing/empty
           if (
             !parsed &&
             (!action.schedule_details || !action.schedule_details.trim()) &&
@@ -1560,7 +1557,6 @@ const pollScheduler = async () => {
             }
           }
 
-          // Priority 3: Only use schedule_time if neither of the above are available
           if (
             !parsed &&
             (!action.schedule_details || !action.schedule_details.trim()) &&
@@ -1629,14 +1625,11 @@ const pollScheduler = async () => {
             const jobKey = `${db}-adv-${action.id}`;
             activeJobKeys.add(jobKey);
 
-            // Generate correct cron for every N minutes
             let cron;
             if (parsed.everyMinutes === 60) {
-              // Every hour, minute 0
               cron = "0 * * * *";
             } else if (parsed.everyMinutes > 60) {
-              // For intervals longer than 1 hour, we'll just use a cron that runs every minute
-              // and rely on the worker to check the actual interval
+
               cron = "* * * * *";
             } else {
               cron = `*/${parsed.everyMinutes} * * * *`;

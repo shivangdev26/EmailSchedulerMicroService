@@ -52,7 +52,7 @@ router.post("/alerts/test", async (req, res) => {
   const { fetchAlertSetups, executeAlertQuery } = require("../services/alertService");
   const { connection } = require("../bullmq");
 
-  const dbName = req.body.dbName || "DCCBusinessSuite_mowara_test";
+  const dbName = req.body?.dbName || "DCCBusinessSuite_mowara_test";
   try {
     const domainData = await fetchDomainData(dbName);
     if (!domainData || !domainData.BLApiUrl) {
