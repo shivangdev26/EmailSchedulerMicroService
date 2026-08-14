@@ -28,7 +28,6 @@ const processEmailQueueStatus = async () => {
 
       const dbData = dbListResponse.data?.data || dbListResponse.data;
       if (Array.isArray(dbData)) {
-        // Filter databases where email_service_type is 'N'
         databases = dbData.filter((db) => db.email_service_type === "N");
         console.log(
           `Fetched ${dbData.length} total databases, filtered to ${databases.length} with email_service_type = 'N'`,

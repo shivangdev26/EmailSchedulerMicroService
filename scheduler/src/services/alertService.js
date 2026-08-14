@@ -37,9 +37,6 @@ const fetchAlertSetups = async ({ token, blApiUrl, id = 1 }) => {
   }
 };
 
-/**
- * Fetches the specific Alert Setup by ID if needed.
- */
 const fetchAlertSetupById = async ({ token, blApiUrl, id }) => {
   try {
     const baseUrl = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/AlertSetup/${id}`;
@@ -77,7 +74,8 @@ const executeAlertQuery = async ({ token, query, blApiUrl }) => {
   try {
     logger.info(`Executing Alert Query`, { query });
 
-    const baseUrl = "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/Common/UDF_query";
+    const baseUrl =
+      "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/Common/UDF_query";
     const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
 
     const res = await axios({

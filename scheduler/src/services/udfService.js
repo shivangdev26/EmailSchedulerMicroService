@@ -140,7 +140,6 @@ const executeMultipleQueries = async ({ token, action, blApiUrl }) => {
   const queries = [];
   const subtitleQueries = [];
 
-  // Collect main queries (query, query_1, query_2, query_3, query_4)
   if (action.query && action.query.trim())
     queries.push({ index: 0, query: action.query.trim() });
   if (action.query_1 && action.query_1.trim())
@@ -160,7 +159,6 @@ const executeMultipleQueries = async ({ token, action, blApiUrl }) => {
   //   })),
   // );
 
-  // Collect subtitle queries (subtitle_query, subtitle_query1, subtitle_query2, subtitle_query3, subtitle_query4)
   if (action.subtitle_query && action.subtitle_query.trim())
     subtitleQueries.push({ index: 0, text: action.subtitle_query.trim() });
   if (action.subtitle_query1 && action.subtitle_query1.trim())
@@ -177,7 +175,7 @@ const executeMultipleQueries = async ({ token, action, blApiUrl }) => {
   // );
 
   const queryResults = {};
-  const rawQueryResults = {}; // For attachments
+  const rawQueryResults = {};
   for (const { index, query } of queries) {
     try {
       const res = await axios({
@@ -194,9 +192,7 @@ const executeMultipleQueries = async ({ token, action, blApiUrl }) => {
       if (typeof responseData === "string") {
         try {
           responseData = JSON.parse(responseData);
-        } catch (e) {
-          // ignore parse errors for now
-        }
+        } catch (e) {}
       }
 
       const data =
@@ -278,7 +274,12 @@ const replaceQueryPlaceholders = (text, data) => {
  * @param {string} params.blApiUrl
  * @returns {Promise<string>}
  */
-const resolveDotPlaceholders = async ({ text, attachmentRecord, token, blApiUrl }) => {
+const resolveDotPlaceholders = async ({
+  text,
+  attachmentRecord,
+  token,
+  blApiUrl,
+}) => {
   if (!text || !attachmentRecord) return text || "";
 
   const dotRegex = /\{\{([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\}\}/g;
@@ -288,7 +289,7 @@ const resolveDotPlaceholders = async ({ text, attachmentRecord, token, blApiUrl 
     const fullMatch = match[0];
     const relation = match[1];
     const field = match[2];
-    if (!matches.some(m => m.fullMatch === fullMatch)) {
+    if (!matches.some((m) => m.fullMatch === fullMatch)) {
       matches.push({ fullMatch, relation, field });
     }
   }
@@ -305,8 +306,8 @@ const resolveDotPlaceholders = async ({ text, attachmentRecord, token, blApiUrl 
   for (const item of matches) {
     const { fullMatch, relation, field } = item;
 
-
-    const isZero = (val) => val !== undefined && val !== null && (val === 0 || val === "0");
+    const isZero = (val) =>
+      val !== undefined && val !== null && (val === 0 || val === "0");
 
     if (
       isZero(attachmentRecord[field]) ||
@@ -314,9 +315,11 @@ const resolveDotPlaceholders = async ({ text, attachmentRecord, token, blApiUrl 
       isZero(attachmentRecord[`${relation}_id`]) ||
       isZero(attachmentRecord[relation])
     ) {
-      console.log(`[resolveDotPlaceholders] FK value for ${relation}.${field} is 0 (unset). Replacing ${fullMatch} with empty string.`);
-      const escapedMatch = fullMatch.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-      const replRegex = new RegExp(escapedMatch, 'gi');
+      console.log(
+        `[resolveDotPlaceholders] FK value for ${relation}.${field} is 0 (unset). Replacing ${fullMatch} with empty string.`,
+      );
+      const escapedMatch = fullMatch.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+      const replRegex = new RegExp(escapedMatch, "gi");
       resultText = resultText.replace(replRegex, "");
       continue;
     }
@@ -333,8 +336,10 @@ const resolveDotPlaceholders = async ({ text, attachmentRecord, token, blApiUrl 
     } else if (isValidId(attachmentRecord[`${field}_id`])) {
       relationId = attachmentRecord[`${field}_id`];
     } else {
-      const strippedField = typeof field === 'string' ? field.replace(/_no|_id/g, '') : '';
-      const mappedField = typeof field === 'string' ? field.replace(/_no/g, '_id') : '';
+      const strippedField =
+        typeof field === "string" ? field.replace(/_no|_id/g, "") : "";
+      const mappedField =
+        typeof field === "string" ? field.replace(/_no/g, "_id") : "";
       if (strippedField && isValidId(attachmentRecord[strippedField])) {
         relationId = attachmentRecord[strippedField];
       } else if (mappedField && isValidId(attachmentRecord[mappedField])) {
@@ -349,14 +354,16 @@ const resolveDotPlaceholders = async ({ text, attachmentRecord, token, blApiUrl 
     }
 
     if (relationId === undefined || relationId === null) {
-      console.warn(`[resolveDotPlaceholders] No ID found in attachment record for relation: ${relation}`);
+      console.warn(
+        `[resolveDotPlaceholders] No ID found in attachment record for relation: ${relation}`,
+      );
       continue;
     }
 
     const candidates = [
       relation,
       `m_${relation}_master`,
-      relation.endsWith("s") ? relation : `${relation}s`
+      relation.endsWith("s") ? relation : `${relation}s`,
     ];
 
     let tblData = [];
@@ -379,16 +386,27 @@ const resolveDotPlaceholders = async ({ text, attachmentRecord, token, blApiUrl 
         if (typeof responseData === "string") {
           try {
             responseData = JSON.parse(responseData);
-          } catch { }
+          } catch {}
         }
 
-        const rows = responseData?.tblData || responseData?.data || responseData?.result || [];
+        const rows =
+          responseData?.tblData ||
+          responseData?.data ||
+          responseData?.result ||
+          [];
         if (rows.length > 0) {
-          const colName = rows[0].COLUMN_NAME || rows[0].column_name || rows[0].columN_NAME || rows[0].ColumN_Name;
+          const colName =
+            rows[0].COLUMN_NAME ||
+            rows[0].column_name ||
+            rows[0].columN_NAME ||
+            rows[0].ColumN_Name;
           if (colName) return colName;
         }
       } catch (err) {
-        console.error(`[resolveDotPlaceholders] Error fetching PK for ${tableName}:`, err.message);
+        console.error(
+          `[resolveDotPlaceholders] Error fetching PK for ${tableName}:`,
+          err.message,
+        );
       }
       return "id";
     };
@@ -396,7 +414,9 @@ const resolveDotPlaceholders = async ({ text, attachmentRecord, token, blApiUrl 
     const runQuery = async (tableName) => {
       const pkColumn = await getPrimaryKeyColumn(tableName);
       const query = `select * from ${tableName} where ${pkColumn} = ${relationId}`;
-      console.log(`[resolveDotPlaceholders] Trying table '${tableName}' on PK '${pkColumn}': ${query}`);
+      console.log(
+        `[resolveDotPlaceholders] Trying table '${tableName}' on PK '${pkColumn}': ${query}`,
+      );
       const res = await axios({
         method: "POST",
         url: url,
@@ -411,13 +431,18 @@ const resolveDotPlaceholders = async ({ text, attachmentRecord, token, blApiUrl 
       if (typeof responseData === "string") {
         try {
           responseData = JSON.parse(responseData);
-        } catch { }
+        } catch {}
       }
 
       if (responseData && responseData.succeeded === false) {
         return null;
       }
-      return responseData?.tblData || responseData?.data || responseData?.result || [];
+      return (
+        responseData?.tblData ||
+        responseData?.data ||
+        responseData?.result ||
+        []
+      );
     };
 
     for (const tableName of candidates) {
@@ -428,13 +453,14 @@ const resolveDotPlaceholders = async ({ text, attachmentRecord, token, blApiUrl 
           succeeded = true;
           break;
         }
-      } catch (err) {
-      }
+      } catch (err) {}
     }
 
     if (!succeeded) {
       try {
-        console.log(`[resolveDotPlaceholders] No candidate matched. Searching database schema for relation: ${relation}`);
+        console.log(
+          `[resolveDotPlaceholders] No candidate matched. Searching database schema for relation: ${relation}`,
+        );
         const schemaQuery = `SELECT TOP 1 TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME LIKE '%${relation}%' OR REPLACE(TABLE_NAME, '_', '') LIKE '%${relation}%' ORDER BY CASE WHEN TABLE_NAME LIKE '%_header' THEN 1 ELSE 2 END`;
         const res = await axios({
           method: "POST",
@@ -450,14 +476,23 @@ const resolveDotPlaceholders = async ({ text, attachmentRecord, token, blApiUrl 
         if (typeof responseData === "string") {
           try {
             responseData = JSON.parse(responseData);
-          } catch { }
+          } catch {}
         }
 
-        const schemaRows = responseData?.tblData || responseData?.data || responseData?.result || [];
+        const schemaRows =
+          responseData?.tblData ||
+          responseData?.data ||
+          responseData?.result ||
+          [];
         if (schemaRows.length > 0) {
-          const matchedTable = schemaRows[0].TABLE_NAME || schemaRows[0].table_name || schemaRows[0].tablE_NAME;
+          const matchedTable =
+            schemaRows[0].TABLE_NAME ||
+            schemaRows[0].table_name ||
+            schemaRows[0].tablE_NAME;
           if (matchedTable) {
-            console.log(`[resolveDotPlaceholders] Found fuzzy matched table: ${matchedTable}`);
+            console.log(
+              `[resolveDotPlaceholders] Found fuzzy matched table: ${matchedTable}`,
+            );
             const parsed = await runQuery(matchedTable);
             if (parsed && parsed.length > 0) {
               tblData = parsed;
@@ -466,7 +501,10 @@ const resolveDotPlaceholders = async ({ text, attachmentRecord, token, blApiUrl 
           }
         }
       } catch (err) {
-        console.error(`[resolveDotPlaceholders] Schema search error for ${relation}:`, err.message);
+        console.error(
+          `[resolveDotPlaceholders] Schema search error for ${relation}:`,
+          err.message,
+        );
       }
     }
 
@@ -475,22 +513,32 @@ const resolveDotPlaceholders = async ({ text, attachmentRecord, token, blApiUrl 
       const relKeys = Object.keys(relRecord);
 
       let fieldValue;
-      if (relRecord['name'] !== undefined && relRecord['name'] !== null) {
-        fieldValue = relRecord['name'];
+      if (relRecord["name"] !== undefined && relRecord["name"] !== null) {
+        fieldValue = relRecord["name"];
       } else if (relKeys.length >= 2) {
         const secondKey = relKeys[1];
-        fieldValue = relRecord[secondKey] !== undefined && relRecord[secondKey] !== null ? relRecord[secondKey] : "";
+        fieldValue =
+          relRecord[secondKey] !== undefined && relRecord[secondKey] !== null
+            ? relRecord[secondKey]
+            : "";
       } else {
-        fieldValue = relRecord[field] !== undefined && relRecord[field] !== null ? relRecord[field] : "";
+        fieldValue =
+          relRecord[field] !== undefined && relRecord[field] !== null
+            ? relRecord[field]
+            : "";
       }
 
-      const escapedMatch = fullMatch.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-      const replRegex = new RegExp(escapedMatch, 'gi');
+      const escapedMatch = fullMatch.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+      const replRegex = new RegExp(escapedMatch, "gi");
       resultText = resultText.replace(replRegex, fieldValue);
 
-      console.log(`[resolveDotPlaceholders] Successfully replaced ${fullMatch} with: ${fieldValue}`);
+      console.log(
+        `[resolveDotPlaceholders] Successfully replaced ${fullMatch} with: ${fieldValue}`,
+      );
     } else {
-      console.warn(`[resolveDotPlaceholders] Failed to resolve relation details for ${fullMatch}`);
+      console.warn(
+        `[resolveDotPlaceholders] Failed to resolve relation details for ${fullMatch}`,
+      );
     }
   }
 

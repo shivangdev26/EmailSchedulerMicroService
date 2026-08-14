@@ -175,10 +175,6 @@ const getAuthToken = async (
       `Failed to get token from Login API: ${JSON.stringify(response.data)}`,
     );
   } catch (error) {
-    // console.error(
-    //   " Error in getAuthToken:",
-    //   error.response?.data || error.message,
-    // );
     throw error;
   }
 };
