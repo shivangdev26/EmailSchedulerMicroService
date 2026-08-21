@@ -29,7 +29,7 @@ const DB_API =
 
 const LOGIN_API =
   "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/auth/Login";
-const POLL_INTERVAL = 15000;
+const POLL_INTERVAL = Number(process.env.SCHEDULER_POLLING_INTERVAL) || 300000;
 const USERNAME = process.env.LOGIN_USERNAME || "fin1";
 const PASSWORD = process.env.LOGIN_PASSWORD || "123456";
 const BATCH_SIZE = Number(process.env.SCHEDULER_BATCH_SIZE) || 10;

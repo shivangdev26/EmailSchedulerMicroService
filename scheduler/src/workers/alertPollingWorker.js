@@ -8,7 +8,7 @@ const dayjs = require("dayjs");
 
 let isPolling = false;
 const scheduledJobCache = new Map();
-const POLL_INTERVAL = 30000;
+const POLL_INTERVAL = Number(process.env.ALERT_POLLING_INTERVAL) || 300000;
 
 const DB_API =
   process.env.DATABASES_API_URL ||
