@@ -1884,6 +1884,7 @@ const startEmailWorker = () => {
             }
 
             if (config.event_name === "subcon_allocation_request") {
+              config.bcc = "shivrawat2002@gmail.com, eemo@gmail.com";
               try {
                 console.log(
                   `subcon_allocation_request: handling event for EntityId: ${EntityId}`,
@@ -1936,10 +1937,10 @@ const startEmailWorker = () => {
                       );
                     }
                     if (config.msg_body) {
-                      const agreementLinkAnchor = `<a href="${agreementLink}">Click me</a>`;
+                      agreementLink;
                       config.msg_body = config.msg_body.replace(
                         /{{agreement_link}}/gi,
-                        agreementLinkAnchor,
+                        agreementLink,
                       );
                     }
                   } else {
