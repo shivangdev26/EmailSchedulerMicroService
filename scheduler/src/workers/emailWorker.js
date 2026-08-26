@@ -1884,75 +1884,68 @@ const startEmailWorker = () => {
             }
 
             if (config.event_name === "subcon_allocation_request") {
-              config.bcc = "shivrawat2002@gmail.com, eemo@gmail.com";
-              try {
-                console.log(
-                  `subcon_allocation_request: handling event for EntityId: ${EntityId}`,
+              console.log(
+                `subcon_allocation_request: handling event for EntityId: ${EntityId}`,
+              );
+
+              let domainUrl = domainData?.url || "";
+              if (!domainUrl) {
+                const fetched = await fetchDomainData(dbName);
+                domainUrl = fetched?.url || "";
+              }
+
+              if (!domainUrl) {
+                throw new Error(
+                  `subcon_allocation_request: Could not retrieve domain url for database ${dbName}`,
                 );
+              }
 
-                let domainUrl = domainData?.url || "";
-                if (!domainUrl) {
-                  const fetched = await fetchDomainData(dbName);
-                  domainUrl = fetched?.url || "";
-                }
+              const response = await axios.post(
+                UDF_QUERY_URL,
+                {
+                  query: `select * from subcon_allocation_request where id = ${EntityId}`,
+                },
+                {
+                  headers: {
+                    ...buildApiHeaders({ bearerToken: token }),
+                    "Content-Type": "application/json",
+                  },
+                },
+              );
 
-                if (!domainUrl) {
-                  console.warn(
-                    "subcon_allocation_request: Could not retrieve domain url.",
-                  );
-                } else {
-                  const response = await axios.post(
-                    UDF_QUERY_URL,
-                    {
-                      query: `select * from subcon_allocation_request where id = ${EntityId}`,
-                    },
-                    {
-                      headers: {
-                        ...buildApiHeaders({ bearerToken: token }),
-                        "Content-Type": "application/json",
-                      },
-                    },
-                  );
+              const tblData = parseTblData(response.data);
+              let tempGuid = "";
+              if (tblData && tblData.length > 0) {
+                const record = tblData[0];
+                tempGuid = (record.temp_guid || "").trim();
+              } else {
+                console.warn(
+                  `subcon_allocation_request: No record found for EntityId ${EntityId}`,
+                );
+              }
 
-                  const tblData = parseTblData(response.data);
-                  if (tblData && tblData.length > 0) {
-                    const record = tblData[0];
-                    const tempGuid = record.temp_guid || "";
-                    console.log(
-                      `subcon_allocation_request: temp_guid found is ${tempGuid}`,
-                    );
+              console.log(
+                `subcon_allocation_request: temp_guid is "${tempGuid}"`,
+              );
 
-                    let baseUrl = domainUrl.trim();
-                    if (baseUrl.endsWith("/")) {
-                      baseUrl = baseUrl.slice(0, -1);
-                    }
+              let baseUrl = domainUrl.trim();
+              if (baseUrl.endsWith("/")) {
+                baseUrl = baseUrl.slice(0, -1);
+              }
 
-                    const agreementLink = `${baseUrl}/public/agreement?agr=${tempGuid}`;
-                    console.log(`Generated agreementLink: ${agreementLink}`);
+              const agreementLink = `${baseUrl}/public/agreement?agr=${tempGuid}`;
+              console.log(`Generated agreementLink: ${agreementLink}`);
 
-                    if (config.title) {
-                      config.title = config.title.replace(
-                        /{{agreement_link}}/gi,
-                        agreementLink,
-                      );
-                    }
-                    if (config.msg_body) {
-                      agreementLink;
-                      config.msg_body = config.msg_body.replace(
-                        /{{agreement_link}}/gi,
-                        agreementLink,
-                      );
-                    }
-                  } else {
-                    console.warn(
-                      `subcon_allocation_request: No record found for EntityId ${EntityId}`,
-                    );
-                  }
-                }
-              } catch (err) {
-                console.error(
-                  "Error in subcon_allocation_request handling:",
-                  err.message,
+              if (config.title) {
+                config.title = config.title.replace(
+                  /{{agreement_link}}/gi,
+                  agreementLink,
+                );
+              }
+              if (config.msg_body) {
+                config.msg_body = config.msg_body.replace(
+                  /{{agreement_link}}/gi,
+                  agreementLink,
                 );
               }
             }
@@ -2036,6 +2029,15 @@ const startEmailWorker = () => {
               blApiUrl: domainData?.BLApiUrl,
             });
             if (dynamicData) {
+              if (config.event_name === "subcon_allocation_request") {
+                let domainUrl = domainData?.url || "";
+                if (domainUrl) {
+                  let baseUrl = domainUrl.trim().replace(/\/$/, "");
+                  const guid = (dynamicData.temp_guid || "").trim();
+                  dynamicData.agreement_link = `${baseUrl}/public/agreement?agr=${guid}`;
+                }
+              }
+
               config.event_name = replacePlaceholders(
                 config.event_name,
                 dynamicData,

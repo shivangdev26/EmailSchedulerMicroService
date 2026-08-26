@@ -47,6 +47,7 @@ const triggerEvent = async (req, res) => {
         EntityId,
         ChildId,
         CombinedIds,
+        domainData,
       },
       {
         attempts: 3,

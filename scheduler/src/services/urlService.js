@@ -20,8 +20,19 @@ const replaceApiUrlPrefix = (baseUrl, blApiUrl) => {
   return dynamicUrl;
 };
 
+const domainCache = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
 const fetchDomainData = async (dbName) => {
   console.log("fetchDomainData called with dbName:", dbName);
+  if (!dbName) return null;
+
+  const cached = domainCache.get(dbName);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    console.log("fetchDomainData returning cached result for dbName:", dbName);
+    return cached.data;
+  }
+
   try {
     const url = `https://logsuitedomainverify.dcctz.com/api/get_domain_url?DBName=${dbName}`;
     console.log("Calling domain API:", url);
@@ -44,6 +55,7 @@ const fetchDomainData = async (dbName) => {
         "Domain API response data (cleaned):",
         JSON.stringify(cleanedData, null, 2),
       );
+      domainCache.set(dbName, { data: cleanedData, timestamp: Date.now() });
       return cleanedData;
     }
     const responseText = await domainResponse.text();
