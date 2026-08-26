@@ -1958,7 +1958,7 @@ const startEmailWorker = () => {
                 const response = await axios.post(
                   UDF_QUERY_URL,
                   {
-                    query: `select top 1 * from d_cf_filemaster_attachment where id in (${CombinedIds}) order by id desc`,
+                    query: `select top 1 * from d_cf_filemaster_attachment where id in (${CombinedIds}) AND container_no!='ALL' AND remarks!='' order by id desc`,
                   },
                   {
                     headers: {
