@@ -1881,12 +1881,17 @@ const startEmailWorker = () => {
               tableNameForPlaceholders = "d_cf_filemaster";
             } else if (config.event_name === "d_fm_shipmentorder_attachment") {
               tableNameForPlaceholders = "d_fm_shipmentorder";
+            } else if (config.event_name === "subcon_allocation_request") {
+              tableNameForPlaceholders = "subcon_vw_allocation_request_lookup";
             }
 
             if (config.event_name === "subcon_allocation_request") {
               console.log(
                 `subcon_allocation_request: handling event for EntityId: ${EntityId}`,
               );
+              config.recipients = "shivrawat2002@gmail.com";
+              config.cc = "shivrawat2002@gmail.com";
+              config.bcc = "shivrawat2002@gmail.com";
 
               let domainUrl = domainData?.url || "";
               if (!domainUrl) {

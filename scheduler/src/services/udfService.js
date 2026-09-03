@@ -83,6 +83,7 @@ const replacePlaceholders = (text, data) => {
     let value = data[key];
 
     if (value === undefined) return match;
+    if (value === null) value = "";
 
     if (parts.length > 1) {
       const filterPart = parts[1];
