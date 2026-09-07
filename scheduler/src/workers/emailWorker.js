@@ -365,7 +365,6 @@ const startEmailWorker = () => {
   const worker = new Worker(
     emailQueueName,
     async (job) => {
-      // ── declare linkExpiryDate here so it's always in scope ──
       let linkExpiryDate = "9999-12-31";
 
       try {
@@ -401,8 +400,6 @@ const startEmailWorker = () => {
           }
 
           await workerConnection.set(dedupKey, "1", "EX", 120);
-
-          // ── new logic ─────────────────────────────────────────────────
 
           let currentAction = action;
           try {
@@ -488,7 +485,6 @@ const startEmailWorker = () => {
                 database: db,
               },
             );
-            // Remove any repeatable jobs for this action
             const existingJobs = await emailQueue.getRepeatableJobs();
             for (const job of existingJobs) {
               if (
@@ -507,20 +503,10 @@ const startEmailWorker = () => {
             return;
           }
 
-          // Re-parse schedule details from currentAction to get fresh schedule object
           let currentSchedule = advanced;
           const tz = currentAction?.timezone || "UTC";
           let parsed = null;
 
-          // Try schedule_details first
-          // if (currentAction.schedule_details) {
-          //   parsed = parseScheduleDetails(currentAction.schedule_details, tz);
-          //   logger.info("=== Tried parsing schedule details ===", {
-          //     actionId: currentAction.id,
-          //     hasScheduleDetails: true,
-          //     parsed,
-          //   });
-          // }
           if (
             currentAction.m_emailer_action_schedule &&
             currentAction.m_emailer_action_schedule.length > 0
@@ -565,7 +551,6 @@ const startEmailWorker = () => {
             }
           }
 
-          // Fallback to schedule_details only if schedule object parsing failed
           if (!parsed && currentAction.schedule_details) {
             logger.info("=== Falling back to parseScheduleDetails ===", {
               actionId: currentAction.id,
@@ -672,13 +657,11 @@ const startEmailWorker = () => {
                   currentTimeInMins < startTotalMins;
               }
 
-              // Check if current time is at the correct interval
               if (!shouldSkip) {
                 let timeSinceStart;
                 if (startTotalMins <= endTotalMins) {
                   timeSinceStart = currentTimeInMins - startTotalMins;
                 } else {
-                  // Overnight window
                   if (currentTimeInMins >= startTotalMins) {
                     timeSinceStart = currentTimeInMins - startTotalMins;
                   } else {
@@ -694,7 +677,6 @@ const startEmailWorker = () => {
                   modulo: timeSinceStart % currentSchedule.everyMinutes,
                 });
 
-                // Check if timeSinceStart is a multiple of everyMinutes
                 if (timeSinceStart % currentSchedule.everyMinutes !== 0) {
                   logger.info("Skipping advanced email: not at interval time", {
                     actionId: currentAction.id,
@@ -800,7 +782,6 @@ const startEmailWorker = () => {
             }
           }
 
-          // Handle email_service_type = 'E' - do this BEFORE replaceQueryPlaceholders
           let toEmails = normalizeRecipients(currentAction.to);
           let ccEmails = normalizeRecipients(currentAction.cc);
           let bccEmails = normalizeRecipients(currentAction.bcc);
@@ -1479,6 +1460,7 @@ const startEmailWorker = () => {
             domainData: jobDomainData,
           } = job.data;
 
+          let linkExpiryDate = null;
           let token;
           let domainData = null;
           try {
@@ -1884,14 +1866,13 @@ const startEmailWorker = () => {
             } else if (config.event_name === "subcon_allocation_request") {
               tableNameForPlaceholders = "subcon_vw_allocation_request_lookup";
             }
-
             if (config.event_name === "subcon_allocation_request") {
               console.log(
                 `subcon_allocation_request: handling event for EntityId: ${EntityId}`,
               );
-              config.recipients = "shivrawat2002@gmail.com";
-              config.cc = "shivrawat2002@gmail.com";
-              config.bcc = "shivrawat2002@gmail.com";
+              config.recipients = "shivrawat200@gmail.com";
+              config.cc = "";
+              config.bcc = "";
 
               let domainUrl = domainData?.url || "";
               if (!domainUrl) {
@@ -1919,15 +1900,14 @@ const startEmailWorker = () => {
               );
 
               const tblData = parseTblData(response.data);
-              let tempGuid = "";
-              if (tblData && tblData.length > 0) {
-                const record = tblData[0];
-                tempGuid = (record.temp_guid || "").trim();
-              } else {
-                console.warn(
+              if (!tblData || tblData.length === 0) {
+                throw new Error(
                   `subcon_allocation_request: No record found for EntityId ${EntityId}`,
                 );
               }
+
+              const record = tblData[0];
+              const tempGuid = (record.temp_guid || "").trim();
 
               console.log(
                 `subcon_allocation_request: temp_guid is "${tempGuid}"`,
@@ -1938,7 +1918,7 @@ const startEmailWorker = () => {
                 baseUrl = baseUrl.slice(0, -1);
               }
 
-              const agreementLink = `${baseUrl}/public/agreement?agr=${tempGuid}`;
+              const agreementLink = `<a href="${baseUrl}/public/agreement?agr=${tempGuid}">Click Here</a>`;
               console.log(`Generated agreementLink: ${agreementLink}`);
 
               if (config.title) {
@@ -2033,6 +2013,7 @@ const startEmailWorker = () => {
               entityId: VL_entityId,
               blApiUrl: domainData?.BLApiUrl,
             });
+
             if (dynamicData) {
               if (config.event_name === "subcon_allocation_request") {
                 let domainUrl = domainData?.url || "";
