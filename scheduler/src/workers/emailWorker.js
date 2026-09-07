@@ -1870,9 +1870,6 @@ const startEmailWorker = () => {
               console.log(
                 `subcon_allocation_request: handling event for EntityId: ${EntityId}`,
               );
-              config.recipients = "shivrawat200@gmail.com";
-              config.cc = "";
-              config.bcc = "";
 
               let domainUrl = domainData?.url || "";
               if (!domainUrl) {
