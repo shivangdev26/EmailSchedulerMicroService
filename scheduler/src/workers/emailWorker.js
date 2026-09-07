@@ -30,7 +30,7 @@ const {
   replaceApiUrlPrefix,
 } = require("../services/urlService");
 const axios = require("axios");
-const logger = require("../utils/logger");
+const { logger, triggerLogger } = require("../utils/logger");
 
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
@@ -288,6 +288,55 @@ const parseScheduleFromObject = (scheduleObj, tz = "UTC") => {
   }
 
   return null;
+};
+
+const extractPlaceholders = (text) => {
+  if (!text || typeof text !== "string") return [];
+  const matches = text.match(/{{([^}]+)}}/g) || [];
+  return [...new Set(matches.map((m) => m.replace(/^{{\s*|\s*}}$/g, "").trim()))];
+};
+
+const analyzePlaceholders = (text, availableData = {}) => {
+  const remaining = extractPlaceholders(text);
+  if (remaining.length === 0) return { hasUnreplaced: false, diagnostics: [] };
+
+  const dataKeys = Object.keys(availableData || {});
+  const lowerDataKeys = dataKeys.map((k) => k.toLowerCase());
+
+  const diagnostics = remaining.map((placeholder) => {
+    const rawName = placeholder.trim();
+    const lowerName = rawName.toLowerCase();
+    const idx = lowerDataKeys.indexOf(lowerName);
+
+    if (idx === -1) {
+      const similar = dataKeys.filter(
+        (k) =>
+          k.toLowerCase().includes(lowerName) ||
+          lowerName.includes(k.toLowerCase()),
+      );
+      return {
+        placeholder: `{{${rawName}}}`,
+        reason: "Column/Property not found in query results or dataset",
+        suggestion: similar.length > 0 ? `Did you mean '${similar.join("', '")}'?` : null,
+      };
+    }
+
+    const matchedKey = dataKeys[idx];
+    const val = availableData[matchedKey];
+    if (val === null || val === undefined || val === "") {
+      return {
+        placeholder: `{{${rawName}}}`,
+        reason: `Matched column '${matchedKey}' in database, but its value is NULL or EMPTY`,
+      };
+    }
+
+    return {
+      placeholder: `{{${rawName}}}`,
+      reason: "Placeholder pattern did not match replacement regex",
+    };
+  });
+
+  return { hasUnreplaced: true, diagnostics };
 };
 
 const buildEmailPayloadFromConfig = (config, smtp, attachments = []) => {
@@ -1445,10 +1494,19 @@ const startEmailWorker = () => {
           return;
         }
 
-        // ── process-email-trigger ─────────────────────────────────────────────
         if (job.name === "process-email-trigger") {
           console.log("=== PROCESS-EMAIL-TRIGGER JOB STARTED ===");
           console.log("Job data:", job.data);
+          triggerLogger.info("Process email trigger job received", {
+            jobId: job.id,
+            event_name: job.data?.event_name || null,
+            EntityId: job.data?.EntityId,
+            Email_Event_Config_Id: job.data?.Email_Event_Config_Id,
+            ID: job.data?.ID,
+            ChildId: job.data?.ChildId,
+            dbName: job.data?.dbName,
+            attempt: (job.attemptsMade || 0) + 1,
+          });
 
           const {
             Email_Event_Config_Id,
@@ -1485,6 +1543,15 @@ const startEmailWorker = () => {
             console.log(`Auth successful for database: ${dbName}`);
           } catch (authError) {
             console.error("Auth error:", authError.message);
+            triggerLogger.error("Authentication failed for trigger email", {
+              jobId: job.id,
+              event_name: job.data?.event_name,
+              EntityId: job.data?.EntityId,
+              Email_Event_Config_Id: job.data?.Email_Event_Config_Id,
+              dbName,
+              error: authError.message,
+              stack: authError.stack,
+            });
             throw new Error(
               `Cannot process email - authentication failed: ${authError.message}`,
             );
@@ -1575,7 +1642,25 @@ const startEmailWorker = () => {
           }
 
           const config = configData.data[0];
+          const effectiveEventName = config.event_name || job.data?.event_name;
           console.log("Using config:", JSON.stringify(config, null, 2));
+
+          const placeholdersInTitle = extractPlaceholders(config.title);
+          const placeholdersInBody = extractPlaceholders(config.msg_body);
+          triggerLogger.info("Loaded event configuration", {
+            jobId: job.id,
+            event_name: effectiveEventName,
+            EntityId,
+            Email_Event_Config_Id,
+            email_account: config.email_account || config.Email_Account,
+            emailer_type: config.emailer_type,
+            subjectTemplate: config.title,
+            placeholdersInTitle,
+            placeholdersInBody,
+            rawRecipients: config.recipients || "",
+            rawCc: config.cc || "",
+            rawBcc: config.bcc || "",
+          });
 
           const confirmationReq = config.confirmation_req;
           const maxExpiryHours = config.max_expiry_hours || 48;
@@ -2012,6 +2097,17 @@ const startEmailWorker = () => {
             });
 
             if (dynamicData) {
+              triggerLogger.info("Dynamic data fetched for placeholders", {
+                jobId: job.id,
+                event_name: effectiveEventName,
+                EntityId,
+                Email_Event_Config_Id,
+                tableName: tableNameForPlaceholders,
+                targetEntityId: VL_entityId,
+                availableColumnsCount: Object.keys(dynamicData).length,
+                hasTempGuid: !!dynamicData.temp_guid,
+              });
+
               if (config.event_name === "subcon_allocation_request") {
                 let domainUrl = domainData?.url || "";
                 if (domainUrl) {
@@ -2046,6 +2142,40 @@ const startEmailWorker = () => {
                 blApiUrl: domainData?.BLApiUrl,
               });
               //new change
+
+              const titleAnalysis = analyzePlaceholders(config.title, dynamicData);
+              const bodyAnalysis = analyzePlaceholders(config.msg_body, dynamicData);
+              const allDiagnostics = [
+                ...titleAnalysis.diagnostics,
+                ...bodyAnalysis.diagnostics,
+              ];
+
+              if (allDiagnostics.length > 0) {
+                triggerLogger.warn("Unreplaced placeholders detected in email", {
+                  jobId: job.id,
+                  event_name: effectiveEventName,
+                  EntityId,
+                  Email_Event_Config_Id,
+                  diagnostics: allDiagnostics,
+                  unreplacedCount: allDiagnostics.length,
+                });
+              } else {
+                triggerLogger.info("All placeholders replaced successfully", {
+                  jobId: job.id,
+                  event_name: effectiveEventName,
+                  EntityId,
+                  Email_Event_Config_Id,
+                });
+              }
+            } else {
+              triggerLogger.warn("Dynamic data fetch returned empty or null", {
+                jobId: job.id,
+                event_name: effectiveEventName,
+                EntityId,
+                Email_Event_Config_Id,
+                tableName: tableNameForPlaceholders,
+                targetEntityId: VL_entityId,
+              });
             }
           }
 
@@ -2205,12 +2335,42 @@ const startEmailWorker = () => {
             console.warn(
               `No recipients for event ${Email_Event_Config_Id}, skipping`,
             );
+            triggerLogger.warn(
+              "No recipients found for trigger email; dispatch skipped",
+              {
+                jobId: job.id,
+                event_name: effectiveEventName,
+                EntityId,
+                Email_Event_Config_Id,
+              },
+            );
           } else {
+            triggerLogger.info("Dispatching trigger email", {
+              jobId: job.id,
+              event_name: effectiveEventName,
+              EntityId,
+              Email_Event_Config_Id,
+              to: emailPayload.to,
+              cc: emailPayload.cc,
+              bcc: emailPayload.bcc,
+              subject: emailPayload.subject,
+              bodyPreview: (emailPayload.body || "").slice(0, 300),
+              attachmentsCount: attachments.length,
+              attachments: attachments.map((a) => a.filename),
+            });
             console.log("Sending email...");
             await sendEmail(emailPayload);
             console.log(
               `Email sent successfully for event ${Email_Event_Config_Id}`,
             );
+            triggerLogger.success("Trigger email sent successfully", {
+              jobId: job.id,
+              event_name: effectiveEventName,
+              EntityId,
+              Email_Event_Config_Id,
+              to: emailPayload.to,
+              status: "SENT",
+            });
           }
 
           console.log("Calling updateEmailQueueStatus with status SENT...");
@@ -2245,6 +2405,19 @@ const startEmailWorker = () => {
       } catch (err) {
         console.error(`Job ${job.id} failed:`, err.message);
         console.error("Stack trace:", err.stack);
+
+        if (job.name === "process-email-trigger") {
+          triggerLogger.error("Trigger email job execution failed", {
+            jobId: job.id,
+            event_name: job.data?.event_name,
+            EntityId: job.data?.EntityId,
+            Email_Event_Config_Id: job.data?.Email_Event_Config_Id,
+            dbName: job.data?.dbName,
+            error: err.message,
+            stack: err.stack,
+            attempt: (job.attemptsMade || 0) + 1,
+          });
+        }
 
         const {
           Email_Event_Config_Id,
