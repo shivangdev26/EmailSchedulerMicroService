@@ -12,7 +12,11 @@ const triggerEvent = async (req, res) => {
       EntityId,
       ChildId,
       CombinedIds,
+      event_name,
+      eventName,
     } = req.body;
+
+    const resolvedEventName = event_name || eventName || null;
 
     if (!dbName || !Email_Event_Config_Id) {
       return res.status(400).json({
@@ -23,12 +27,10 @@ const triggerEvent = async (req, res) => {
 
     console.log("Received trigger full data:", req.body);
 
-    // Fetch domain data first for dynamic URLs
     console.log("About to call fetchDomainData with dbName:", dbName);
     const domainData = await fetchDomainData(dbName);
     console.log("Received domainData from fetchDomainData:", domainData);
 
-    // 1. Get auth token (from Redis or Login API)
     const token = await getAuthToken(
       connection,
       dbName,
@@ -37,7 +39,6 @@ const triggerEvent = async (req, res) => {
     );
     console.log("Got auth token!");
 
-    // 2. Store in BullMQ
     await emailQueue.add(
       "process-email-trigger",
       {
@@ -47,6 +48,7 @@ const triggerEvent = async (req, res) => {
         EntityId,
         ChildId,
         CombinedIds,
+        event_name: resolvedEventName,
         domainData,
       },
       {

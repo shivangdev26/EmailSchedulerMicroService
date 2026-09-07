@@ -1,8 +1,8 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require("fs");
+const path = require("path");
 
-const logsDir = path.join(__dirname, '..', 'logs');
-const maxAgeMs = 60 * 1000; // 1 minute
+const logsDir = path.join(__dirname, "..", "logs");
+const maxAgeMs = 14 * 24 * 60 * 60 * 1000;
 
 const cleanupLogs = () => {
   try {
@@ -17,18 +17,17 @@ const cleanupLogs = () => {
       const filePath = path.join(logsDir, file);
       try {
         const stats = fs.statSync(filePath);
-        if (now - stats.mtimeMs > maxAgeMs && stats.size > 0) {
-          fs.truncateSync(filePath, 0);
-          console.log(`[LogCleanup] Truncated: ${file}`);
+        if (now - stats.mtimeMs > maxAgeMs) {
+          fs.unlinkSync(filePath);
+          console.log(`[LogCleanup] Deleted old log file: ${file}`);
         }
-      } catch (err) {
-      }
+      } catch (err) {}
     }
   } catch (err) {
-    console.error('[LogCleanup] Error:', err.message);
+    console.error("[LogCleanup] Error:", err.message);
   }
 };
 
-console.log('[LogCleanup] Starting fallback log cleanup worker');
+console.log("[LogCleanup] Starting log cleanup worker (14-day retention)");
 cleanupLogs();
-setInterval(cleanupLogs, 30 * 1000); // Check every 30 seconds
+setInterval(cleanupLogs, 24 * 60 * 60 * 1000); // Check once a day
