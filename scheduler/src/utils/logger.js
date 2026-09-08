@@ -73,7 +73,13 @@ const triggerFileFormat = winston.format.combine(
       badge = " [SUCCESS]";
     }
 
-    const eventName = meta.event_name || meta.eventName;
+    let eventName = meta.event_name || meta.eventName;
+    if (!eventName && error && typeof error === "string" && error.includes(":")) {
+      const candidate = error.split(":")[0].trim();
+      if (candidate && !candidate.includes(" ") && !candidate.toLowerCase().includes("error")) {
+        eventName = candidate;
+      }
+    }
     const jobId = meta.jobId ? `Job #${meta.jobId}` : null;
     const entityId =
       meta.EntityId !== undefined && meta.EntityId !== null

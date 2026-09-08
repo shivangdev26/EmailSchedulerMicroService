@@ -415,6 +415,7 @@ const startEmailWorker = () => {
     emailQueueName,
     async (job) => {
       let linkExpiryDate = "9999-12-31";
+      let currentEventName = job.data?.event_name || job.data?.eventName || null;
 
       try {
         if (job.name === "send-email") {
@@ -1642,7 +1643,9 @@ const startEmailWorker = () => {
           }
 
           const config = configData.data[0];
-          const effectiveEventName = config.event_name || job.data?.event_name;
+          currentEventName = config.event_name || currentEventName;
+          if (job.data) job.data.event_name = currentEventName;
+          const effectiveEventName = currentEventName;
           console.log("Using config:", JSON.stringify(config, null, 2));
 
           const placeholdersInTitle = extractPlaceholders(config.title);
@@ -2407,9 +2410,17 @@ const startEmailWorker = () => {
         console.error("Stack trace:", err.stack);
 
         if (job.name === "process-email-trigger") {
+          let failureEventName = currentEventName || job.data?.event_name;
+          if (!failureEventName && err?.message && err.message.includes(":")) {
+            const possible = err.message.split(":")[0].trim();
+            if (possible && !possible.includes(" ") && !possible.toLowerCase().includes("error")) {
+              failureEventName = possible;
+            }
+          }
+
           triggerLogger.error("Trigger email job execution failed", {
             jobId: job.id,
-            event_name: job.data?.event_name,
+            event_name: failureEventName,
             EntityId: job.data?.EntityId,
             Email_Event_Config_Id: job.data?.Email_Event_Config_Id,
             dbName: job.data?.dbName,
