@@ -1,23 +1,7 @@
 const axios = require("axios");
-const { buildApiHeaders } = require("./apiAuthService");
-const { replaceApiUrlPrefix } = require("./urlService");
+const { buildApiHeaders } = require("../common/apiAuthService");
+const { replaceApiUrlPrefix } = require("../common/urlService");
 
-/**
- *
- * @param {Object} params
- * @param {string} params.token
- * @param {number} params.id
- * @param {number} params.email_queu
- * @param {string} params.ack_status
- * @param {string} [params.tgr_status='s']
- * @param {string} params.status
- * @param {string} [params.dbName]
- * @param {number} [params.EntityId]
- * @param {number} [params.ChildId]
- * @param {string} [params.response]
- * @param {number} [params.retry_count]
- * @param {string} [params.link_expiry]
- */
 const updateEmailQueueStatus = async ({
   token,
   id = 0,
@@ -56,7 +40,6 @@ const updateEmailQueueStatus = async ({
       retry_count: retry_count,
     };
 
-    // Only add optional fields if they are provided
     if (link_expiry) {
       payload.link_expiry = link_expiry;
     }

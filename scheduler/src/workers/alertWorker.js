@@ -1,7 +1,7 @@
 const { Worker } = require("bullmq");
 const IORedis = require("ioredis");
-const { getAuthToken } = require("../services/apiAuthService");
-const { executeAlertQuery } = require("../services/alertService");
+const { getAuthToken } = require("../services/common/apiAuthService");
+const { executeAlertQuery } = require("../services/alert/alertService");
 const { alertQueueName, connection } = require("../bullmq");
 const logger = require("../utils/logger");
 

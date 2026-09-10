@@ -1,0 +1,25 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 14
+    },
+    "auditLog": "C:\\Users\\lenovo\\Desktop\\AmpleServ\\EmailSchedulerMicroService\\scheduler\\logs\\.bd8eddf66762f2e4a8a5292364eb4cbafbdff1e3-audit.json",
+    "files": [
+        {
+            "date": 1788843743022,
+            "name": "C:\\Users\\lenovo\\Desktop\\AmpleServ\\EmailSchedulerMicroService\\scheduler\\logs\\combined-2026-09-08.log",
+            "hash": "a524471ef812f141ce24055953104271e9b30c9030c767fde3fb13c61717545b"
+        },
+        {
+            "date": 1788929179323,
+            "name": "C:\\Users\\lenovo\\Desktop\\AmpleServ\\EmailSchedulerMicroService\\scheduler\\logs\\combined-2026-09-09.log",
+            "hash": "b8c2da6faf04a85e465c5d9c756f645e5ce4bda44ae576dff79dd7e7faa313f3"
+        },
+        {
+            "date": 1789020515982,
+            "name": "C:\\Users\\lenovo\\Desktop\\AmpleServ\\EmailSchedulerMicroService\\scheduler\\logs\\combined-2026-09-10.log",
+            "hash": "5fd5b43b36d64d2bdecc8074dffcbf342ff39851339e3217d51a5e2dcf6b6df2"
+        }
+    ],
+    "hashType": "sha256"
+}

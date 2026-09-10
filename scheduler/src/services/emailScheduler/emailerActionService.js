@@ -1,5 +1,5 @@
-const { buildApiHeaders } = require("./apiAuthService");
-const { replaceApiUrlPrefix } = require("./urlService");
+const { buildApiHeaders } = require("../common/apiAuthService");
+const { replaceApiUrlPrefix } = require("../common/urlService");
 
 const defaultSchedulerActionsUrl =
   "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/Common/GetEmailerActions?pageSize=1000";
@@ -241,25 +241,6 @@ const extractCollection = (payload) => {
   return [];
 };
 
-// const fetchSchedulerActions = async (customUrl) => {
-//   const url = customUrl || getSchedulerActionsUrl();
-
-//   const { payload, method } = await fetchJson(
-//     url,
-//     getSchedulerActionsMethod(),
-//     getSchedulerActionsBody(),
-//   );
-
-//   const normalizedPayload = normalizePayload(payload);
-//   const extractedItems = extractCollection(normalizedPayload);
-
-//   return {
-//     method,
-//     raw: normalizedPayload,
-//     items: extractedItems,
-//   };
-// };
-
 const fetchSchedulerActions = async (customUrl, customToken) => {
   const url = customUrl || getSchedulerActionsUrl();
 
@@ -287,24 +268,6 @@ const fetchSchedulerActions = async (customUrl, customToken) => {
     return { method: null, raw: { tblData: [] }, items: [] };
   }
 };
-// const fetchEventConfigurations = async () => {
-//   const { payload, method } = await fetchJson(
-//     getEventConfigurationsUrl(),
-//     getEventConfigurationsMethod(),
-//     getEventConfigurationsBody(),
-//   );
-//   const normalizedPayload = normalizePayload(payload);
-//   const extractedItems = extractCollection(normalizedPayload);
-//   const fallbackItems = Array.isArray(normalizedPayload?.tblData)
-//     ? normalizedPayload.tblData
-//     : [];
-
-//   return {
-//     method,
-//     raw: normalizedPayload,
-//     items: extractedItems.length > 0 ? extractedItems : fallbackItems,
-//   };
-// };
 
 const fetchEventConfigurations = async (customUrl, customToken) => {
   const url = customUrl || getEventConfigurationsUrl();

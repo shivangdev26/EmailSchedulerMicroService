@@ -7,28 +7,35 @@ const emailQueue = new Queue(emailQueueName, { connection });
 const {
   sendEmail,
   getSendEmailUrl,
-} = require("../services/emailSenderService");
-const { getAuthToken, buildApiHeaders } = require("../services/apiAuthService");
-const { fetchSmtpConfig } = require("../services/emailerSmtpAccountService");
-const { updateEmailQueueStatus } = require("../services/ackService");
+} = require("../services/common/emailSenderService");
+const {
+  getAuthToken,
+  buildApiHeaders,
+} = require("../services/common/apiAuthService");
+const {
+  fetchSmtpConfig,
+} = require("../services/emailScheduler/emailerSmtpAccountService");
+const {
+  updateEmailQueueStatus,
+} = require("../services/emailScheduler/ackService");
 const {
   fetchUdfData,
   replacePlaceholders,
   executeMultipleQueries,
   replaceQueryPlaceholders,
   resolveDotPlaceholders,
-} = require("../services/udfService");
+} = require("../services/emailScheduler/udfService");
 const {
   generateExcelBuffer,
   generatePdfBuffer,
-} = require("../services/attachmentService");
+} = require("../services/emailScheduler/attachmentService");
 const {
   processEmailQueueStatus,
-} = require("../services/emailQueueCronService");
+} = require("../services/alert/emailQueueCronService");
 const {
   fetchDomainData,
   replaceApiUrlPrefix,
-} = require("../services/urlService");
+} = require("../services/common/urlService");
 const axios = require("axios");
 const { logger, triggerLogger } = require("../utils/logger");
 
@@ -293,7 +300,9 @@ const parseScheduleFromObject = (scheduleObj, tz = "UTC") => {
 const extractPlaceholders = (text) => {
   if (!text || typeof text !== "string") return [];
   const matches = text.match(/{{([^}]+)}}/g) || [];
-  return [...new Set(matches.map((m) => m.replace(/^{{\s*|\s*}}$/g, "").trim()))];
+  return [
+    ...new Set(matches.map((m) => m.replace(/^{{\s*|\s*}}$/g, "").trim())),
+  ];
 };
 
 const analyzePlaceholders = (text, availableData = {}) => {
@@ -317,7 +326,8 @@ const analyzePlaceholders = (text, availableData = {}) => {
       return {
         placeholder: `{{${rawName}}}`,
         reason: "Column/Property not found in query results or dataset",
-        suggestion: similar.length > 0 ? `Did you mean '${similar.join("', '")}'?` : null,
+        suggestion:
+          similar.length > 0 ? `Did you mean '${similar.join("', '")}'?` : null,
       };
     }
 
@@ -415,7 +425,8 @@ const startEmailWorker = () => {
     emailQueueName,
     async (job) => {
       let linkExpiryDate = "9999-12-31";
-      let currentEventName = job.data?.event_name || job.data?.eventName || null;
+      let currentEventName =
+        job.data?.event_name || job.data?.eventName || null;
 
       try {
         if (job.name === "send-email") {
@@ -1483,10 +1494,10 @@ const startEmailWorker = () => {
 
           const sendEmailResponse = await sendEmail(emailPayload);
 
-          logger.info("=== Send email response ===", {
-            actionId: currentAction.id,
-            response: sendEmailResponse,
-          });
+          // logger.info("=== Send email response ===", {
+          //   actionId: currentAction.id,
+          //   response: sendEmailResponse,
+          // });
 
           logger.info("Email sent successfully", {
             actionId: currentAction.id,
@@ -2146,22 +2157,31 @@ const startEmailWorker = () => {
               });
               //new change
 
-              const titleAnalysis = analyzePlaceholders(config.title, dynamicData);
-              const bodyAnalysis = analyzePlaceholders(config.msg_body, dynamicData);
+              const titleAnalysis = analyzePlaceholders(
+                config.title,
+                dynamicData,
+              );
+              const bodyAnalysis = analyzePlaceholders(
+                config.msg_body,
+                dynamicData,
+              );
               const allDiagnostics = [
                 ...titleAnalysis.diagnostics,
                 ...bodyAnalysis.diagnostics,
               ];
 
               if (allDiagnostics.length > 0) {
-                triggerLogger.warn("Unreplaced placeholders detected in email", {
-                  jobId: job.id,
-                  event_name: effectiveEventName,
-                  EntityId,
-                  Email_Event_Config_Id,
-                  diagnostics: allDiagnostics,
-                  unreplacedCount: allDiagnostics.length,
-                });
+                triggerLogger.warn(
+                  "Unreplaced placeholders detected in email",
+                  {
+                    jobId: job.id,
+                    event_name: effectiveEventName,
+                    EntityId,
+                    Email_Event_Config_Id,
+                    diagnostics: allDiagnostics,
+                    unreplacedCount: allDiagnostics.length,
+                  },
+                );
               } else {
                 triggerLogger.info("All placeholders replaced successfully", {
                   jobId: job.id,
@@ -2413,7 +2433,11 @@ const startEmailWorker = () => {
           let failureEventName = currentEventName || job.data?.event_name;
           if (!failureEventName && err?.message && err.message.includes(":")) {
             const possible = err.message.split(":")[0].trim();
-            if (possible && !possible.includes(" ") && !possible.toLowerCase().includes("error")) {
+            if (
+              possible &&
+              !possible.includes(" ") &&
+              !possible.toLowerCase().includes("error")
+            ) {
               failureEventName = possible;
             }
           }

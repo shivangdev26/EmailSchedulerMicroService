@@ -1,5 +1,5 @@
 const axios = require("axios");
-const { buildApiHeaders } = require("./apiAuthService");
+const { buildApiHeaders } = require("../common/apiAuthService");
 
 const fetchEventConfigs = async ({ token } = {}) => {
   try {

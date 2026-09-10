@@ -1,6 +1,6 @@
 const axios = require("axios");
-const { getAuthToken, buildApiHeaders } = require("./apiAuthService");
-const { connection } = require("../bullmq");
+const { getAuthToken, buildApiHeaders } = require("../common/apiAuthService");
+const { connection } = require("../../bullmq");
 
 const DB_LIST_URL =
   process.env.DATABASES_API_URL ||
@@ -19,13 +19,7 @@ const processEmailQueueStatus = async () => {
     let databases = [];
 
     try {
-      // console.log("Fetching all databases...");
       const dbListResponse = await axios.get(DB_LIST_URL);
-      // console.log(
-      //   "Database list API response:",
-      //   JSON.stringify(dbListResponse.data, null, 2),
-      // );
-
       const dbData = dbListResponse.data?.data || dbListResponse.data;
       if (Array.isArray(dbData)) {
         databases = dbData.filter((db) => db.email_service_type === "N");
@@ -56,8 +50,6 @@ const processEmailQueueStatus = async () => {
         );
         continue;
       }
-
-      // console.log(`--- Processing database: ${dbName} ---`);
 
       try {
         const token = await getAuthToken(connection, dbName);
@@ -219,10 +211,6 @@ const processEmailQueueStatus = async () => {
           }
         }
       } catch (dbError) {
-        // console.error(
-        //   `Error processing database ${dbName}:`,
-        //   dbError.response?.data || dbError.message,
-        // );
       }
     }
     console.log("Email queue status check cron job completed");

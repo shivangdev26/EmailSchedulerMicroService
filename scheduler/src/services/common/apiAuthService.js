@@ -124,7 +124,6 @@ const getAuthToken = async (
       throw new Error("LOGIN_API_URL environment variable is not defined");
     }
     const loginUrl = replaceApiUrlPrefix(baseLoginUrl, blApiUrl);
-    console.log("Using login URL:", loginUrl);
 
     let response;
 

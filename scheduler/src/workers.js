@@ -316,6 +316,8 @@ let emailWorker = null;
 let schedulerPollingWorker = null;
 let alertWorker = null;
 let alertPollingWorker = null;
+let pushNotificationWorker = null;
+let workflowEmailWorker = null;
 
 const trackInterval = (intervalId) => {
   activeIntervals.push(intervalId);
@@ -332,12 +334,12 @@ const clearAllTimers = () => {
   activeIntervals.forEach((id) => {
     try {
       clearInterval(id);
-    } catch (e) { }
+    } catch (e) {}
   });
   activeTimeouts.forEach((id) => {
     try {
       clearTimeout(id);
-    } catch (e) { }
+    } catch (e) {}
   });
   activeIntervals.length = 0;
   activeTimeouts.length = 0;
@@ -486,6 +488,10 @@ const startWorkers = async () => {
   const { startSchedulerPolling } = require("./workers/schedulerPollingWorker");
   const { startAlertWorker } = require("./workers/alertWorker");
   const { startAlertPolling } = require("./workers/alertPollingWorker");
+  const {
+    startPushNotificationWorker,
+  } = require("./workers/pushNotificationWorker");
+  const { startWorkflowEmailWorker } = require("./workers/workflowEmailWorker");
 
   if (emailWorker) {
     await stopWorker(emailWorker, "emailWorker");
@@ -503,17 +509,29 @@ const startWorkers = async () => {
     await stopWorker(alertPollingWorker, "alertPollingWorker");
     alertPollingWorker = null;
   }
+  if (pushNotificationWorker) {
+    await stopWorker(pushNotificationWorker, "pushNotificationWorker");
+    pushNotificationWorker = null;
+  }
+  if (workflowEmailWorker) {
+    await stopWorker(workflowEmailWorker, "workflowEmailWorker");
+    workflowEmailWorker = null;
+  }
 
   try {
     emailWorker = startEmailWorker();
     schedulerPollingWorker = startSchedulerPolling();
-    alertWorker = startAlertWorker();
-    alertPollingWorker = startAlertPolling();
+    // alertWorker = startAlertWorker();
+    // alertPollingWorker = startAlertPolling();
+    pushNotificationWorker = startPushNotificationWorker();
+    workflowEmailWorker = startWorkflowEmailWorker();
     logger.info("Workers started successfully", {
       emailWorkerType: emailWorker?.constructor?.name || "unknown",
       schedulerWorkerType: schedulerPollingWorker?.intervalId
         ? "CustomScheduler"
         : "unknown",
+      pushNotificationWorkerActive: !!pushNotificationWorker,
+      workflowEmailWorkerActive: !!workflowEmailWorker,
     });
   } catch (e) {
     logger.error("Failed to start workers", { error: e.message });
@@ -530,24 +548,39 @@ const workerHealthCheck = async () => {
   const schedulerAlive = isWorkerAlive(schedulerPollingWorker);
   const alertAlive = isWorkerAlive(alertWorker);
   const alertPollingAlive = isWorkerAlive(alertPollingWorker);
+  const pushAlive = isWorkerAlive(pushNotificationWorker);
+  const workflowEmailAlive = isWorkerAlive(workflowEmailWorker);
 
   logger.info("Worker health check", {
     emailAlive,
     schedulerAlive,
     alertAlive,
     alertPollingAlive,
+    pushAlive,
+    workflowEmailAlive,
     emailWorkerExists: !!emailWorker,
     schedulerWorkerExists: !!schedulerPollingWorker,
     alertWorkerExists: !!alertWorker,
     alertPollingWorkerExists: !!alertPollingWorker,
+    pushNotificationWorkerExists: !!pushNotificationWorker,
+    workflowEmailWorkerExists: !!workflowEmailWorker,
   });
 
-  if (!emailAlive || !schedulerAlive || !alertAlive || !alertPollingAlive) {
+  if (
+    !emailAlive ||
+    !schedulerAlive ||
+    !alertAlive ||
+    !alertPollingAlive ||
+    !pushAlive ||
+    !workflowEmailAlive
+  ) {
     logger.warn("One or more workers are dead — restarting...", {
       emailAlive,
       schedulerAlive,
       alertAlive,
       alertPollingAlive,
+      pushAlive,
+      workflowEmailAlive,
     });
     await startWorkers();
   }
@@ -599,6 +632,8 @@ const gracefulShutdown = async (signal) => {
     await stopWorker(schedulerPollingWorker, "schedulerPollingWorker");
     await stopWorker(alertWorker, "alertWorker");
     await stopWorker(alertPollingWorker, "alertPollingWorker");
+    await stopWorker(pushNotificationWorker, "pushNotificationWorker");
+    await stopWorker(workflowEmailWorker, "workflowEmailWorker");
     await emailQueue.close();
     await alertQueue.close();
     await connection.quit();

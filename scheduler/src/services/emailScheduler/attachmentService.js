@@ -9,115 +9,6 @@ const { Readable } = require("stream");
  * @param {string} worksheetType - "S" for single sheet, "M" for multiple sheets
  * @returns {Promise<{buffer: Buffer, filename: string}>}
  */
-// const generateExcelBuffer = async (
-//   queryResults,
-//   filename = "report",
-//   worksheetType = "S",
-// ) => {
-//   const workbook = new ExcelJS.Workbook();
-
-//   if (
-//     queryResults &&
-//     typeof queryResults === "object" &&
-//     !Array.isArray(queryResults)
-//   ) {
-//     const rawResults = queryResults;
-//     const queryKeys = Object.keys(rawResults).filter(
-//       (k) =>
-//         rawResults[k] &&
-//         Array.isArray(rawResults[k]) &&
-//         rawResults[k].length > 0,
-//     );
-
-//     if (worksheetType === "M") {
-//       for (let i = 0; i < queryKeys.length; i++) {
-//         const queryKey = queryKeys[i];
-//         const data = rawResults[queryKey];
-//         const sheetName = `Sheet ${i + 1}`;
-
-//         const worksheet = workbook.addWorksheet(sheetName);
-
-//         const headers = Object.keys(data[0]);
-//         worksheet.columns = headers.map((header) => ({
-//           header,
-//           key: header,
-//           width: 20,
-//         }));
-
-//         data.forEach((row) => {
-//           worksheet.addRow(row);
-//         });
-//       }
-//     } else {
-//       const worksheet = workbook.addWorksheet("Data");
-//       let currentRow = 1;
-
-//       for (let i = 0; i < queryKeys.length; i++) {
-//         const queryKey = queryKeys[i];
-//         const data = rawResults[queryKey];
-
-//         if (queryKeys.length > 1) {
-//           worksheet.getCell(`A${currentRow}`).value =
-//             `Query ${i + 1} (${queryKey})`;
-//           worksheet.getCell(`A${currentRow}`).font = { bold: true, size: 12 };
-//           currentRow += 2;
-//         }
-
-//         const headers = Object.keys(data[0]);
-//         const headerRow = worksheet.getRow(currentRow);
-//         headers.forEach((header, index) => {
-//           const cell = headerRow.getCell(index + 1);
-//           cell.value = header;
-//           cell.font = { bold: true };
-//           cell.fill = {
-//             type: "pattern",
-//             pattern: "solid",
-//             fgColor: { argb: "FFD3D3D3" },
-//           };
-//         });
-//         currentRow++;
-
-//         data.forEach((row) => {
-//           const dataRow = worksheet.getRow(currentRow);
-//           headers.forEach((header, index) => {
-//             dataRow.getCell(index + 1).value = row[header];
-//           });
-//           currentRow++;
-//         });
-
-//         if (i < queryKeys.length - 1) {
-//           currentRow += 2;
-//         }
-//       }
-//     }
-//   } else {
-//     const worksheet = workbook.addWorksheet("Data");
-
-//     if (queryResults && queryResults.length > 0) {
-//       const headers = Object.keys(queryResults[0]);
-//       worksheet.columns = headers.map((header) => ({
-//         header,
-//         key: header,
-//         width: 20,
-//       }));
-
-//       queryResults.forEach((row) => {
-//         worksheet.addRow(row);
-//       });
-//     }
-//   }
-
-//   const buffer = await workbook.xlsx.writeBuffer();
-
-//   return {
-//     buffer,
-//     filename: `${filename}.xlsx`,
-//     mimetype:
-//       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-//   };
-// };
-
-
 const generateExcelBuffer = async (
   queryResults,
   filename = "report",
@@ -155,33 +46,33 @@ const generateExcelBuffer = async (
         const headerRow = worksheet.getRow(1);
         headerRow.eachCell((cell) => {
           cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FF3B82F6' },
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FF3B82F6" },
           };
-          cell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
+          cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
           cell.border = {
-            top: { style: 'thin' },
-            left: { style: 'thin' },
-            bottom: { style: 'thin' },
-            right: { style: 'thin' },
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
           };
         });
 
         data.forEach((row, idx) => {
           const excelRow = worksheet.addRow(row);
-          const fillColor = idx % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF';
+          const fillColor = idx % 2 === 0 ? "FFF8FAFC" : "FFFFFFFF";
           excelRow.eachCell((cell) => {
             cell.fill = {
-              type: 'pattern',
-              pattern: 'solid',
+              type: "pattern",
+              pattern: "solid",
               fgColor: { argb: fillColor },
             };
             cell.border = {
-              top: { style: 'thin' },
-              left: { style: 'thin' },
-              bottom: { style: 'thin' },
-              right: { style: 'thin' },
+              top: { style: "thin" },
+              left: { style: "thin" },
+              bottom: { style: "thin" },
+              right: { style: "thin" },
             };
           });
         });
@@ -206,17 +97,17 @@ const generateExcelBuffer = async (
         headers.forEach((header, index) => {
           const cell = headerRow.getCell(index + 1);
           cell.value = header.toUpperCase();
-          cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+          cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
           cell.fill = {
             type: "pattern",
             pattern: "solid",
             fgColor: { argb: "FF3B82F6" },
           };
           cell.border = {
-            top: { style: 'thin' },
-            left: { style: 'thin' },
-            bottom: { style: 'thin' },
-            right: { style: 'thin' },
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
           };
         });
         currentRow++;
@@ -226,18 +117,18 @@ const generateExcelBuffer = async (
           headers.forEach((header, index) => {
             dataRow.getCell(index + 1).value = row[header];
           });
-          const fillColor = idx % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF';
+          const fillColor = idx % 2 === 0 ? "FFF8FAFC" : "FFFFFFFF";
           dataRow.eachCell((cell) => {
             cell.fill = {
-              type: 'pattern',
-              pattern: 'solid',
+              type: "pattern",
+              pattern: "solid",
               fgColor: { argb: fillColor },
             };
             cell.border = {
-              top: { style: 'thin' },
-              left: { style: 'thin' },
-              bottom: { style: 'thin' },
-              right: { style: 'thin' },
+              top: { style: "thin" },
+              left: { style: "thin" },
+              bottom: { style: "thin" },
+              right: { style: "thin" },
             };
           });
           currentRow++;
@@ -368,14 +259,14 @@ const generatePdfBuffer = (queryResults, filename = "report") => {
 
         headers.forEach((header, colIndex) => {
           const width = colWidths[colIndex];
-          doc.rect(currentX, y, width, headerRowHeight).fillAndStroke('#3b82f6', 'black');
-          doc.fillColor('white');
+          doc.rect(currentX, y, width, headerRowHeight).fillAndStroke("#3b82f6", "black");
+          doc.fillColor("white");
           doc.text(header.toUpperCase(), currentX + cellPadding, y + cellPadding, {
             width: width - cellPadding * 2,
             align: "left",
             baseline: "top",
           });
-          doc.fillColor('black');
+          doc.fillColor("black");
           currentX += width;
         });
         return headerRowHeight;
@@ -405,8 +296,8 @@ const generatePdfBuffer = (queryResults, filename = "report") => {
               ? String(row[header])
               : "";
 
-          doc.rect(currentX, y, width, maxRowHeight).fillAndStroke(rowBg, 'black');
-          doc.fillColor('black');
+          doc.rect(currentX, y, width, maxRowHeight).fillAndStroke(rowBg, "black");
+          doc.fillColor("black");
           doc.text(value, currentX + cellPadding, y + cellPadding, {
             width: width - cellPadding * 2,
             align: "left",

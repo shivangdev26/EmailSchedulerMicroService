@@ -3,10 +3,10 @@ const { connection, emailQueueName } = require("../bullmq");
 const {
   fetchSchedulerActions,
   buildActionApiHeaders,
-} = require("../services/emailerActionService");
+} = require("../services/emailScheduler/emailerActionService");
 const axios = require("axios");
-const { fetchSmtpConfig } = require("../services/emailerSmtpAccountService");
-const { getAuthToken } = require("../services/apiAuthService");
+const { fetchSmtpConfig } = require("../services/emailScheduler/emailerSmtpAccountService");
+const { getAuthToken } = require("../services/common/apiAuthService");
 const logger = require("../utils/logger");
 
 const dayjs = require("dayjs");

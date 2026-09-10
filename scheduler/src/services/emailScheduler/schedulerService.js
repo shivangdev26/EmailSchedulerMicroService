@@ -1,5 +1,5 @@
 const { Queue } = require("bullmq");
-const { connection, emailQueueName } = require("../bullmq");
+const { connection, emailQueueName } = require("../../bullmq");
 const dayjs = require("dayjs");
 
 const emailQueue = new Queue(emailQueueName, { connection });

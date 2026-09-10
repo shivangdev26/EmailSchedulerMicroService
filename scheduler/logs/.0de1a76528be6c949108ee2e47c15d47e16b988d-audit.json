@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 1
+    },
+    "auditLog": "C:\\Users\\lenovo\\Desktop\\AmpleServ\\EmailSchedulerMicroService\\scheduler\\logs\\.0de1a76528be6c949108ee2e47c15d47e16b988d-audit.json",
+    "files": [
+        {
+            "date": 1789023342484,
+            "name": "C:\\Users\\lenovo\\Desktop\\AmpleServ\\EmailSchedulerMicroService\\scheduler\\logs\\combined-2026-09-10.log",
+            "hash": "ec221b00f7791a33add0feec50ac0bf400bc6ae70eafe98281201ff7164ac33b"
+        }
+    ],
+    "hashType": "sha256"
+}

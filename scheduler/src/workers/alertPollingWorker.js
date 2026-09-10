@@ -1,8 +1,8 @@
 const { alertQueue, connection } = require("../bullmq");
 const axios = require("axios");
-const { getAuthToken } = require("../services/apiAuthService");
-const { fetchDomainData } = require("../services/urlService");
-const { fetchAlertSetups } = require("../services/alertService");
+const { getAuthToken } = require("../services/common/apiAuthService");
+const { fetchDomainData } = require("../services/common/urlService");
+const { fetchAlertSetups } = require("../services/alert/alertService");
 const logger = require("../utils/logger");
 const dayjs = require("dayjs");
 

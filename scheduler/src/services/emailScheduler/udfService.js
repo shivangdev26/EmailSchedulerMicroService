@@ -1,6 +1,6 @@
 const axios = require("axios");
-const { buildApiHeaders } = require("./apiAuthService");
-const { replaceApiUrlPrefix } = require("./urlService");
+const { buildApiHeaders } = require("../common/apiAuthService");
+const { replaceApiUrlPrefix } = require("../common/urlService");
 const dayjs = require("dayjs");
 
 /**
@@ -136,8 +136,6 @@ const executeMultipleQueries = async ({ token, action, blApiUrl }) => {
   }
   const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
 
-  // console.log(`[executeMultipleQueries] Starting for action ${action.id}`);
-
   const queries = [];
   const subtitleQueries = [];
 
@@ -152,14 +150,6 @@ const executeMultipleQueries = async ({ token, action, blApiUrl }) => {
   if (action.query_4 && action.query_4.trim())
     queries.push({ index: 4, query: action.query_4.trim() });
 
-  // console.log(
-  //   `[executeMultipleQueries] Collected ${queries.length} queries:`,
-  //   queries.map((q) => ({
-  //     index: q.index,
-  //     query: q.query.slice(0, 50) + "...",
-  //   })),
-  // );
-
   if (action.subtitle_query && action.subtitle_query.trim())
     subtitleQueries.push({ index: 0, text: action.subtitle_query.trim() });
   if (action.subtitle_query1 && action.subtitle_query1.trim())
@@ -170,10 +160,6 @@ const executeMultipleQueries = async ({ token, action, blApiUrl }) => {
     subtitleQueries.push({ index: 3, text: action.subtitle_query3.trim() });
   if (action.subtitle_query4 && action.subtitle_query4.trim())
     subtitleQueries.push({ index: 4, text: action.subtitle_query4.trim() });
-
-  // console.log(
-  //   `[executeMultipleQueries] Collected ${subtitleQueries.length} subtitle queries`,
-  // );
 
   const queryResults = {};
   const rawQueryResults = {};
@@ -261,8 +247,6 @@ const replaceQueryPlaceholders = (text, data) => {
     },
   );
 };
-
-//new change
 
 /**
  * Resolves dot-notation placeholders like {{user.name}} by fetching the relation ID
@@ -545,7 +529,6 @@ const resolveDotPlaceholders = async ({
 
   return resultText;
 };
-//new change
 
 module.exports = {
   fetchUdfData,

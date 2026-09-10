@@ -1,0 +1,67 @@
+[2026-09-10 12:24:45]  [INFO]    | Job #376 | EntityId: 23 | ConfigId: 12
+    >> Process email trigger job received
+     Details: {
+      "ID": 195,
+      "ChildId": 0,
+      "dbName": "DCCBusinessSuite_mowara_test",
+      "attempt": 1
+    }
+=====================================================================================
+[2026-09-10 12:24:46]  [INFO]    | Job #376 | Event: subcon_allocation_request | EntityId: 23 | ConfigId: 12
+    >> Loaded event configuration
+     Details: {
+      "email_account": "2",
+      "emailer_type": "E",
+      "subjectTemplate": "Agreement Signature for BP Name from DCClogSuite",
+      "placeholdersInTitle": [],
+      "placeholdersInBody": [
+        "customer_name",
+        "unit_price",
+        "container_no",
+        "route_code",
+        "agreement_link"
+      ],
+      "rawRecipients": "shivang.rawat@ampleserv.com, anil.kumar@doubleclick.co.tz, afsar.siddique@apleserv.com",
+      "rawCc": "shivrawat2002@gmail.com",
+      "rawBcc": "anil.ex2k@gmail.com"
+    }
+=====================================================================================
+[2026-09-10 12:24:46]  [INFO]    | Job #376 | Event: subcon_allocation_request | EntityId: 23 | ConfigId: 12
+    >> Dynamic data fetched for placeholders
+     Details: {
+      "tableName": "subcon_vw_allocation_request_lookup",
+      "targetEntityId": 23,
+      "availableColumnsCount": 46,
+      "hasTempGuid": false
+    }
+=====================================================================================
+[2026-09-10 12:24:46]  [SUCCESS] | Job #376 | Event: subcon_allocation_request | EntityId: 23 | ConfigId: 12
+    >> All placeholders replaced successfully
+=====================================================================================
+[2026-09-10 12:24:46]  [INFO]    | Job #376 | Event: subcon_allocation_request | EntityId: 23 | ConfigId: 12
+    >> Dispatching trigger email
+     Details: {
+      "to": [
+        "shivang.rawat@ampleserv.com",
+        "anil.kumar@doubleclick.co.tz",
+        "afsar.siddique@apleserv.com"
+      ],
+      "cc": [],
+      "bcc": [],
+      "subject": "Agreement Signature for BP Name from DCClogSuite",
+      "bodyPreview": "",
+      "attachmentsCount": 0,
+      "attachments": []
+    }
+=====================================================================================
+[2026-09-10 12:24:47]  [SUCCESS] | Job #376 | Event: subcon_allocation_request | EntityId: 23 | ConfigId: 12
+    >> Trigger email sent successfully
+     Details: {
+      "to": [
+        "shivang.rawat@ampleserv.com",
+        "anil.kumar@doubleclick.co.tz",
+        "afsar.siddique@apleserv.com"
+      ],
+      "status": "SENT"
+    }
+=====================================================================================
