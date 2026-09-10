@@ -2099,7 +2099,11 @@ const startEmailWorker = () => {
               blApiUrl: domainData?.BLApiUrl,
             });
 
-            if (dynamicData) {
+            if (
+              dynamicData &&
+              typeof dynamicData === "object" &&
+              Object.keys(dynamicData).length > 0
+            ) {
               triggerLogger.info("Dynamic data fetched for placeholders", {
                 jobId: job.id,
                 event_name: effectiveEventName,
@@ -2179,6 +2183,9 @@ const startEmailWorker = () => {
                 tableName: tableNameForPlaceholders,
                 targetEntityId: VL_entityId,
               });
+              throw new Error(
+                `${effectiveEventName || config.event_name}: No record found for EntityId ${VL_entityId} in ${tableNameForPlaceholders}`,
+              );
             }
           }
 
