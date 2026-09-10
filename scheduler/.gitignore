@@ -1,3 +1,10 @@
 node_modules/
 node_modules
 .env
+.env*
+env.txt
+logs/
+*.log
+*-audit.json
+firebase-service-account.json
+*firebase-service-account*.json
