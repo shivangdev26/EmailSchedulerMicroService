@@ -1,4 +1,5 @@
 const axios = require("axios");
+const dayjs = require("dayjs");
 const { buildApiHeaders } = require("../common/apiAuthService");
 const { replaceApiUrlPrefix } = require("../common/urlService");
 const logger = require("../../utils/logger");
@@ -236,7 +237,6 @@ const markNotificationProcessed = async ({
       const updateApprovalQuery = `UPDATE m_approval_request_details SET ready_to_notify = 'Y' WHERE id = ${Number(requestDetailId)}`;
       await executeUdfQuery({ token, query: updateApprovalQuery, blApiUrl });
     }
-
   } catch (err) {
     logger.error("Error in markNotificationProcessed", {
       statusId,
@@ -263,6 +263,312 @@ const updateAlertFrequencyLastRun = async ({ token, blApiUrl, alertIds }) => {
   }
 };
 
+const buildApprovalEmailHtml = ({
+  title,
+  msgtext,
+  actionName,
+  notificationId,
+  stageNumber,
+  requesterName,
+  requesterEmail,
+  docNum,
+  requisitionNo,
+  amount,
+  costCenter,
+  empName,
+  requestDate,
+  portalUrl,
+  tableHtml = "",
+}) => {
+  const displayDoc =
+    requisitionNo || docNum
+      ? `${requisitionNo ? requisitionNo : `Doc #${docNum}`}`
+      : `Ref #${notificationId}`;
+  const formattedAmount =
+    amount !== undefined &&
+    amount !== null &&
+    amount !== "" &&
+    Number(amount) > 0
+      ? Number(amount).toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })
+      : null;
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f1f5f9; padding: 30px 10px;">
+    <tr>
+      <td align="center">
+        <!-- Main Card -->
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); border: 1px solid #e2e8f0;">
+          
+          <!-- Header Banner -->
+          <tr>
+            <td style="background-color: #d32f2f; padding: 24px 30px; text-align: left;">
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                <tr>
+                  <td>
+                    <span style="display: inline-block; background-color: rgba(255, 255, 255, 0.2); color: #ffffff; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; padding: 4px 10px; border-radius: 20px; margin-bottom: 8px;">
+                      Approval Required
+                    </span>
+                    <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 700; line-height: 1.3;">
+                      ${title}
+                    </h1>
+                    <p style="color: rgba(255, 255, 255, 0.9); margin: 6px 0 0 0; font-size: 13px;">
+                      Document Ref: <strong>${displayDoc}</strong>
+                    </p>
+                  </td>
+                  ${
+                    stageNumber
+                      ? `
+                  <td align="right" valign="top" style="white-space: nowrap;">
+                    <span style="background-color: #ffffff; color: #d32f2f; font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 6px; display: inline-block;">
+                      Stage ${stageNumber}
+                    </span>
+                  </td>`
+                      : ""
+                  }
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Content Body -->
+          <tr>
+            <td style="padding: 24px 30px;">
+              
+              <p style="font-size: 14px; color: #334155; line-height: 1.5; margin: 0 0 18px 0;">
+                A new request requires your review and approval in <strong>LogSuite</strong>.
+              </p>
+
+              <!-- Document Details Table -->
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
+                <tr>
+                  <td style="padding: 14px 16px;">
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="font-size: 13px; line-height: 1.6;">
+                      <tr>
+                        <td style="color: #64748b; width: 140px; padding: 4px 0; font-weight: 500;">Document Ref:</td>
+                        <td style="color: #0f172a; font-weight: 700; padding: 4px 0;">${displayDoc}</td>
+                      </tr>
+                      ${
+                        requesterName
+                          ? `
+                      <tr>
+                        <td style="color: #64748b; padding: 4px 0; font-weight: 500;">Requested By:</td>
+                        <td style="color: #0f172a; padding: 4px 0;">${requesterName} ${requesterEmail ? `<span style="color: #64748b; font-size: 12px;">(${requesterEmail})</span>` : ""}</td>
+                      </tr>`
+                          : ""
+                      }
+                      ${
+                        requestDate
+                          ? `
+                      <tr>
+                        <td style="color: #64748b; padding: 4px 0; font-weight: 500;">Request Date:</td>
+                        <td style="color: #0f172a; padding: 4px 0;">${requestDate}</td>
+                      </tr>`
+                          : ""
+                      }
+                      ${
+                        formattedAmount
+                          ? `
+                      <tr>
+                        <td style="color: #64748b; padding: 4px 0; font-weight: 500;">Total Amount:</td>
+                        <td style="color: #d32f2f; font-weight: 700; font-size: 15px; padding: 4px 0;">${formattedAmount}</td>
+                      </tr>`
+                          : ""
+                      }
+                      ${
+                        empName
+                          ? `
+                      <tr>
+                        <td style="color: #64748b; padding: 4px 0; font-weight: 500;">Beneficiary:</td>
+                        <td style="color: #0f172a; padding: 4px 0;">${empName}</td>
+                      </tr>`
+                          : ""
+                      }
+                      ${
+                        costCenter
+                          ? `
+                      <tr>
+                        <td style="color: #64748b; padding: 4px 0; font-weight: 500;">Cost Center:</td>
+                        <td style="color: #0f172a; padding: 4px 0;">${costCenter}</td>
+                      </tr>`
+                          : ""
+                      }
+                      ${
+                        msgtext &&
+                        msgtext.trim() &&
+                        msgtext.trim() !== "ok" &&
+                        msgtext.trim() !== "wq"
+                          ? `
+                      <tr>
+                        <td style="color: #64748b; padding: 4px 0; font-weight: 500;">Remarks / Notes:</td>
+                        <td style="color: #0f172a; padding: 4px 0;">${msgtext}</td>
+                      </tr>`
+                          : ""
+                      }
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              ${
+                tableHtml
+                  ? `
+              <div style="margin-bottom: 20px;">
+                <h4 style="margin: 0 0 10px 0; font-size: 13px; color: #475569; text-transform: uppercase;">Details</h4>
+                ${tableHtml}
+              </div>`
+                  : ""
+              }
+
+              <!-- Action Button -->
+              ${
+                portalUrl
+                  ? `
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin: 24px 0 10px 0;">
+                <tr>
+                  <td align="center">
+                    <a href="${portalUrl}" target="_blank" style="background-color: #d32f2f; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-size: 14px; font-weight: 600; display: inline-block; box-shadow: 0 2px 4px rgba(211, 47, 47, 0.3);">
+                      Open in LogSuite &rarr;
+                    </a>
+                  </td>
+                </tr>
+              </table>`
+                  : ""
+              }
+
+            </td>
+          </tr>
+
+
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #ffffff; padding: 18px 30px; text-align: center; border-top: 1px solid #f1f5f9;">
+              <p style="font-size: 11px; color: #94a3b8; margin: 0 0 4px 0;">
+                Sent automatically by <strong>DCC LogSuite Notification Service</strong>
+              </p>
+              <p style="font-size: 10px; color: #cbd5e1; margin: 0;">
+                Please do not reply directly to this automated email.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`;
+};
+
+const buildAlertEmailHtml = ({
+  title,
+  msgtext,
+  actionName,
+  notificationId,
+  tableHtml = "",
+  portalUrl = "",
+}) => {
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f1f5f9; padding: 30px 10px;">
+    <tr>
+      <td align="center">
+        <!-- Main Card -->
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); border: 1px solid #e2e8f0;">
+          
+          <!-- Header Banner -->
+          <tr>
+            <td style="background-color: #1e293b; padding: 22px 30px; text-align: left;">
+              <span style="display: inline-block; background-color: rgba(255, 255, 255, 0.15); color: #93c5fd; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; padding: 4px 10px; border-radius: 20px; margin-bottom: 8px;">
+                System Alert
+              </span>
+              <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 700; line-height: 1.3;">
+                ${title}
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Content Body -->
+          <tr>
+            <td style="padding: 24px 30px;">
+              ${
+                msgtext && msgtext.trim()
+                  ? `
+              <p style="font-size: 14px; color: #334155; line-height: 1.6; margin: 0 0 18px 0;">
+                ${msgtext}
+              </p>`
+                  : ""
+              }
+
+              ${
+                tableHtml
+                  ? `
+              <div style="margin: 15px 0;">
+                <h4 style="margin: 0 0 10px 0; font-size: 13px; color: #475569; text-transform: uppercase;">Alert Data</h4>
+                ${tableHtml}
+              </div>`
+                  : ""
+              }
+
+              ${
+                portalUrl
+                  ? `
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin: 20px 0 10px 0;">
+                <tr>
+                  <td align="center">
+                    <a href="${portalUrl}" target="_blank" style="background-color: #1e293b; color: #ffffff; text-decoration: none; padding: 10px 24px; border-radius: 6px; font-size: 13px; font-weight: 600; display: inline-block;">
+                      Open LogSuite Portal &rarr;
+                    </a>
+                  </td>
+                </tr>
+              </table>`
+                  : ""
+              }
+            </td>
+          </tr>
+
+
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #ffffff; padding: 18px 30px; text-align: center; border-top: 1px solid #f1f5f9;">
+              <p style="font-size: 11px; color: #94a3b8; margin: 0 0 4px 0;">
+                Sent automatically by <strong>DCC LogSuite Notification Service</strong>
+              </p>
+              <p style="font-size: 10px; color: #cbd5e1; margin: 0;">
+                Please do not reply directly to this automated email.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`;
+};
+
 const dispatchNotificationEmail = async ({
   token,
   blApiUrl,
@@ -275,11 +581,21 @@ const dispatchNotificationEmail = async ({
   try {
     if (!notificationId) return;
 
-    // 1. Look up notifier email and check if email is enabled in setup
+    // 1. Look up notification, user, and approval / alert details
     const notifUserRows = await executeUdfQuery({
       token,
       query: `
         SELECT TOP 1 
+          n.id,
+          n.title,
+          n.msgtext,
+          n.notifier_id,
+          n.parent_id,
+          n.parent_source,
+          n.request_detail_id,
+          n.action_name,
+          n.sequence_stage,
+          n.createdate as notif_date,
           ISNULL(u.email, ISNULL(usr.email, '')) as notifier_email,
           ISNULL(u.first_name, ISNULL(usr.first_name, '')) as first_name,
           ISNULL(u.last_name, ISNULL(usr.last_name, '')) as last_name,
@@ -288,7 +604,18 @@ const dispatchNotificationEmail = async ({
             WHEN n.parent_source = 2 THEN ISNULL(app_u.email, 'Y')
             WHEN n.parent_source = 1 THEN ISNULL(alt_u.email, 'Y')
             ELSE 'Y'
-          END as is_email_enabled
+          END as is_email_enabled,
+          req.requested_by as app_requested_by,
+          req.request_date as app_request_date,
+          req.request_details as app_request_details,
+          req.request_status as app_request_status,
+          req.table_name as app_table_name,
+          req.action_id as app_action_id,
+          det.stepnumber as app_stepnumber,
+          requser.username as req_username,
+          requser.first_name as req_first_name,
+          requser.last_name as req_last_name,
+          requser.email as req_email
         FROM m_notifications n
         LEFT JOIN m_user_master usr ON n.notifier_id = usr.id
         LEFT JOIN vw_lookup_user_setup u ON n.notifier_id = u.id
@@ -298,6 +625,7 @@ const dispatchNotificationEmail = async ({
         LEFT JOIN m_approval_setup_user app_u ON req.approval_id = app_u.parent_id 
              AND n.notifier_id = app_u.user_id 
              AND det.stepnumber = app_u.stepnumber
+        LEFT JOIN vw_lookup_user_setup requser ON req.requested_by = requser.id
         -- For alerts (parent_source = 1)
         LEFT JOIN m_alert_setup_user alt_u ON n.parent_id = alt_u.parent_id 
              AND n.notifier_id = alt_u.user_id 
@@ -307,17 +635,20 @@ const dispatchNotificationEmail = async ({
       blApiUrl,
     });
 
-    const isEmailEnabled = notifUserRows?.[0]?.is_email_enabled !== "N";
-    const recipientEmail =
-      Array.isArray(notifUserRows) && notifUserRows[0]?.notifier_email
-        ? String(notifUserRows[0].notifier_email).trim()
-        : "";
+    const notif = notifUserRows?.[0];
+    const isEmailEnabled = notif?.is_email_enabled !== "N";
+    const recipientEmail = notif?.notifier_email
+      ? String(notif.notifier_email).trim()
+      : "";
 
     if (!isEmailEnabled) {
-      logger.info("Email notification is disabled for user in setup; skipping email dispatch", {
-        notificationId,
-        recipient: recipientEmail,
-      });
+      logger.info(
+        "Email notification is disabled for user in setup; skipping email dispatch",
+        {
+          notificationId,
+          recipient: recipientEmail,
+        },
+      );
       return;
     }
 
@@ -329,10 +660,33 @@ const dispatchNotificationEmail = async ({
       return;
     }
 
-    // 2. Fetch SMTP configuration
+    // 2. If it's an approval request, attempt to fetch document details
+    let docRecord = null;
+    if (notif?.app_table_name && notif?.app_action_id) {
+      try {
+        const docRows = await executeUdfQuery({
+          token,
+          query: `SELECT TOP 1 * FROM ${notif.app_table_name} WHERE id = ${Number(notif.app_action_id)}`,
+          blApiUrl,
+        });
+        if (Array.isArray(docRows) && docRows.length > 0) {
+          docRecord = docRows[0];
+        }
+      } catch (docErr) {
+        logger.debug("Could not fetch underlying document details", {
+          table: notif.app_table_name,
+          id: notif.app_action_id,
+          error: docErr.message,
+        });
+      }
+    }
+
+    // 3. Fetch SMTP configuration
     let smtp = null;
     try {
-      const { fetchSmtpConfig } = require("../emailScheduler/emailerSmtpAccountService");
+      const {
+        fetchSmtpConfig,
+      } = require("../emailScheduler/emailerSmtpAccountService");
       smtp = await fetchSmtpConfig({ token, blApiUrl });
     } catch (e) {}
 
@@ -346,33 +700,82 @@ const dispatchNotificationEmail = async ({
     let tableHtml = "";
     if (Array.isArray(tableRows) && tableRows.length > 0) {
       try {
-        const { formatResultsToHtmlTable } = require("../workflowEmail/workflowEmailService");
+        const {
+          formatResultsToHtmlTable,
+        } = require("../workflowEmail/workflowEmailService");
         tableHtml = formatResultsToHtmlTable(tableRows);
       } catch (_) {}
+    }
+
+    let portalUrl = "";
+    try {
+      const { fetchDomainData } = require("../common/urlService");
+      const domainData = await fetchDomainData("DCCBusinessSuite_mowara_test");
+      portalUrl = domainData?.url || "";
+    } catch (_) {}
+
+    const isApproval = Number(notif?.parent_source) === 2;
+    let emailSubject = "";
+    let emailHtml = "";
+
+    if (isApproval) {
+      const reqName =
+        notif?.req_first_name || notif?.req_last_name
+          ? `${notif.req_first_name || ""} ${notif.req_last_name || ""}`.trim()
+          : notif?.req_username || "";
+      const reqDate = notif?.app_request_date
+        ? dayjs(notif.app_request_date).format("DD-MMM-YYYY HH:mm")
+        : "";
+      const docNum = docRecord?.doc_num || "";
+      const requisitionNo = docRecord?.requisition_no || "";
+      const displayDoc =
+        requisitionNo || docNum
+          ? `${requisitionNo ? requisitionNo : `Doc #${docNum}`}`
+          : `Ref #${notificationId}`;
+      const amount =
+        docRecord?.amount ||
+        docRecord?.total_amount ||
+        docRecord?.trans_amt ||
+        null;
+      const costCenter = docRecord?.cost_center || "";
+      const empName = docRecord?.emp_name || "";
+
+      emailSubject = `[LogSuite Approval] ${title} - ${displayDoc}`;
+      emailHtml = buildApprovalEmailHtml({
+        title,
+        msgtext,
+        actionName: actionName || notif?.action_name,
+        notificationId,
+        stageNumber: notif?.sequence_stage || notif?.app_stepnumber,
+        requesterName: reqName,
+        requesterEmail: notif?.req_email,
+        docNum,
+        requisitionNo,
+        amount,
+        costCenter,
+        empName,
+        requestDate: reqDate,
+        portalUrl,
+        tableHtml,
+      });
+    } else {
+      emailSubject = `[LogSuite Alert] ${title}`;
+      emailHtml = buildAlertEmailHtml({
+        title,
+        msgtext,
+        actionName: actionName || notif?.action_name,
+        notificationId,
+        tableHtml,
+        portalUrl,
+      });
     }
 
     const emailPayload = {
       from: fromEmail,
       to: [recipientEmail],
-      subject: `[LogSuite Alert] ${title}`,
-      text: msgtext,
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; max-width: 600px; margin: 0 auto;">
-          <div style="background-color: #e60000; padding: 12px 16px; border-radius: 6px 6px 0 0; margin: -20px -20px 16px -20px;">
-            <h2 style="color: #ffffff; margin: 0; font-size: 18px;">${title}</h2>
-          </div>
-          <p style="font-size: 14px; color: #333333; line-height: 1.6;">${msgtext}</p>
-          ${tableHtml ? `<div style="margin-top: 15px;">${tableHtml}</div>` : ""}
-          <div style="background-color: #f8f9fa; padding: 10px 14px; border-radius: 6px; font-size: 12px; color: #555555; margin-top: 15px;">
-            <strong>Action:</strong> ${actionName || "Approval / Alert Notification"}<br/>
-            <strong>Notification ID:</strong> ${notificationId}
-          </div>
-          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 20px 0;" />
-          <p style="font-size: 11px; color: #888888; text-align: center;">
-            Sent automatically from DCC LogSuite Notification Microservice
-          </p>
-        </div>
-      `,
+      subject: emailSubject,
+      text: msgtext || title,
+      html: emailHtml,
       smtp: {
         server,
         email: username,
@@ -384,7 +787,9 @@ const dispatchNotificationEmail = async ({
     const sendEmailUrl =
       process.env.SEND_EMAIL_API_URL ||
       "https://microservices.dcctz.com/api/send_email";
-    const apiKey = process.env.SEND_EMAIL_API_TOKEN;
+    const apiKey =
+      process.env.SEND_EMAIL_API_TOKEN ||
+      "EAAWOFw8QuSgBOZB6IYFbdSTpTBWD9pXeI5DEZB8ZCs8Ivtg7Fopi9llcc5hddMgUx65IiLe7cZCJevlWMV7JVkTbwm8qG7FMDh3PMoiGabhuufRtgRV32gy0Ttw0XeZAJcBj48gEywbPrQ3K6wxL0ZBabBfsVhGBcqVTxGWHJ1UZBUXPkKoMiJ1QbIHnBAu0pL1";
 
     const emailRes = await axios.post(sendEmailUrl, emailPayload, {
       headers: {
@@ -512,10 +917,13 @@ const processSinglePushNotification = async ({ item, token, blApiUrl }) => {
         });
       }
     } else {
-      logger.info("No mobile FCM token registered for user; sending email notification directly", {
-        notificationId,
-        statusId,
-      });
+      logger.info(
+        "No mobile FCM token registered for user; sending email notification directly",
+        {
+          notificationId,
+          statusId,
+        },
+      );
     }
 
     // Always dispatch email notification to user inbox
