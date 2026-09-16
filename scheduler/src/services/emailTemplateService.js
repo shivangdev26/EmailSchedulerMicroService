@@ -121,14 +121,31 @@ const calculateKpiMetrics = (rows = []) => {
   };
 };
 
+const formatDatabaseDisplayName = (dbName) => {
+  if (!dbName || typeof dbName !== "string") {
+    return "DCC LOGISTICS SUITE";
+  }
+
+  let cleaned = dbName.trim();
+  // Strip common technical prefixes like DCCBusinessSuite_, DCCLogisticsSuite_, DCC_
+  cleaned = cleaned.replace(/^DCC(?:Business|Logistics)?Suite[_\s]*/i, "");
+  cleaned = cleaned.replace(/^DCC[_\s]+/i, "");
+  // Replace underscores and multiple dashes with spaces
+  cleaned = cleaned.replace(/[_-]+/g, " ").trim().toUpperCase();
+
+  return cleaned ? `DCC ${cleaned}` : "DCC LOGISTICS SUITE";
+};
+
 const buildCorporateEmailHtml = ({
   title = "Shipment Status Report",
   subtitle = "Container movements at a glance",
   tableHtml = "",
   rows = [],
   currentDateStr = dayjs().format("DD MMMM YYYY"),
+  dbName = "",
 }) => {
   const kpis = calculateKpiMetrics(rows);
+  const brandName = formatDatabaseDisplayName(dbName);
 
   const displayTitle = title
     .replace(/_/g, " ")
@@ -158,14 +175,14 @@ const buildCorporateEmailHtml = ({
         <!-- Main Content Container (Max 860px) -->
         <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 860px; width: 100%; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);">
 
-          <!-- 1. Top Header: DCCLogisticsSuite Brand Text & Date -->
+          <!-- 1. Top Header: Brand Text & Date -->
           <tr>
             <td style="padding: 24px 32px 18px 32px; background-color: #ffffff; border-bottom: 1px solid #f1f5f9;">
               <table width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
                   <td align="left" style="vertical-align: middle;">
                     <div style="font-size: 24px; font-weight: 900; letter-spacing: -0.5px; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1;">
-                      DCCLogisticsSuite
+                      ${brandName}
                     </div>
                   </td>
                   <td align="right" style="vertical-align: middle; text-align: right;">
@@ -181,7 +198,7 @@ const buildCorporateEmailHtml = ({
             </td>
           </tr>
 
-          <!-- 2. Hero Banner: DCCLogisticsSuite Theme -->
+          <!-- 2. Hero Banner: Brand Theme -->
           <tr>
             <td style="padding: 0;">
               <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background: linear-gradient(135deg, #091e3a 0%, #0d284f 50%, #1e293b 100%); background-color: #0d284f; color: #ffffff;">
@@ -192,7 +209,7 @@ const buildCorporateEmailHtml = ({
                       ${displayTitle}
                     </div>
                     <div style="font-size: 13px; color: #cbd5e1; font-weight: 500; margin-top: 6px;">
-                      DCCLogisticsSuite &nbsp;|&nbsp; Enterprise Logistics Operations
+                      ${brandName} &nbsp;|&nbsp; Enterprise Logistics Operations
                     </div>
                     <!-- Accent Line -->
                     <div style="width: 44px; height: 3px; background-color: #3b82f6; border-radius: 2px; margin: 16px 0 20px 0;"></div>
@@ -204,7 +221,7 @@ const buildCorporateEmailHtml = ({
                           Automate operations. Gain predictive insights. Scale with efficiency.
                         </td>
                         <td align="right" style="font-size: 10px; color: #cbd5e1; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;">
-                          DCC LOGISTICS SUITE
+                          ${brandName}
                         </td>
                       </tr>
                     </table>
@@ -221,7 +238,7 @@ const buildCorporateEmailHtml = ({
                 Hello Valued Customer,
               </div>
               <div style="font-size: 13px; color: #475569; line-height: 1.6;">
-                Please find below the latest <strong>${displayTitle}</strong> generated from <strong>DCCLogisticsSuite</strong>. This report provides an overview of operations, tracking details and status alerts.
+                Please find below the latest <strong>${displayTitle}</strong> generated from <strong>${brandName}</strong>. This report provides an overview of operations, tracking details and status alerts.
               </div>
             </td>
           </tr>
@@ -361,7 +378,7 @@ const buildCorporateEmailHtml = ({
                           </div>
                           <div style="font-size: 11px; color: #475569; line-height: 1.4;">
                             Best regards,<br>
-                            <strong>DCCLogisticsSuite Support</strong><br>
+                            <strong>${brandName} Support</strong><br>
                             <strong>DCC SAP Business One Operations</strong>
                           </div>
                         </td>
@@ -406,7 +423,7 @@ const buildCorporateEmailHtml = ({
                 <tr>
                   <td align="left" style="vertical-align: middle;">
                     <span style="font-size: 14px; font-weight: 900; color: #0f172a; letter-spacing: -0.3px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-                      DCCLogisticsSuite
+                      ${brandName}
                     </span>
                   </td>
                   <td align="right" style="vertical-align: middle; font-size: 10px; color: #94a3b8; font-weight: 700; letter-spacing: 1px;">
@@ -429,5 +446,6 @@ const buildCorporateEmailHtml = ({
 
 module.exports = {
   calculateKpiMetrics,
+  formatDatabaseDisplayName,
   buildCorporateEmailHtml,
 };
