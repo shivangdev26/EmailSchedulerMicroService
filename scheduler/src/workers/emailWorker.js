@@ -849,6 +849,139 @@ const startEmailWorker = () => {
           let toEmails = normalizeRecipients(currentAction.to);
           let ccEmails = normalizeRecipients(currentAction.cc);
           let bccEmails = normalizeRecipients(currentAction.bcc);
+
+          // Handle enable_dynamic_email:
+          // When 'Y', extract recipient emails (to, cc, bcc) from the executed UDF query results.
+          // When 'N' (or not 'Y'), use the default to, cc, bcc from the action response.
+          if (currentAction.enable_dynamic_email === "Y") {
+            const dynamicToSet = new Set();
+            const dynamicCcSet = new Set();
+            const dynamicBccSet = new Set();
+
+            const getFieldValue = (row, candidates) => {
+              if (!row || typeof row !== "object") return null;
+              const keys = Object.keys(row);
+              for (const cand of candidates) {
+                const target = cand.toLowerCase().replace(/[\s_-]/g, "");
+                const foundKey = keys.find(
+                  (k) => k.toLowerCase().replace(/[\s_-]/g, "") === target,
+                );
+                if (
+                  foundKey &&
+                  row[foundKey] !== undefined &&
+                  row[foundKey] !== null
+                ) {
+                  const val = String(row[foundKey]).trim();
+                  if (val) return val;
+                }
+              }
+              return null;
+            };
+
+            const toCandidates = [
+              "email_to",
+              "to_email",
+              "email_from",
+              "email",
+              "to",
+              "email_address",
+              "recipient",
+              "recipients",
+            ];
+            const ccCandidates = ["email_cc", "cc_email", "cc"];
+            const bccCandidates = ["email_bcc", "bcc_email", "bcc"];
+
+            const queryKeys = Object.keys(queryData).filter(
+              (k) =>
+                k.startsWith("query_result_") && Array.isArray(queryData[k]),
+            );
+
+            for (const qk of queryKeys) {
+              const rows = queryData[qk];
+              for (const row of rows) {
+                const toVal = getFieldValue(row, toCandidates);
+                if (toVal) {
+                  normalizeRecipients(toVal).forEach((e) => dynamicToSet.add(e));
+                }
+
+                const ccVal = getFieldValue(row, ccCandidates);
+                if (ccVal) {
+                  normalizeRecipients(ccVal).forEach((e) => dynamicCcSet.add(e));
+                }
+
+                const bccVal = getFieldValue(row, bccCandidates);
+                if (bccVal) {
+                  normalizeRecipients(bccVal).forEach((e) =>
+                    dynamicBccSet.add(e),
+                  );
+                }
+              }
+            }
+
+            logger.info("Dynamic email extraction result", {
+              actionId: currentAction.id,
+              enable_dynamic_email: currentAction.enable_dynamic_email,
+              dynamicTo: Array.from(dynamicToSet),
+              dynamicCc: Array.from(dynamicCcSet),
+              dynamicBcc: Array.from(dynamicBccSet),
+              defaultTo: toEmails,
+              defaultCc: ccEmails,
+              defaultBcc: bccEmails,
+            });
+
+            if (dynamicToSet.size > 0) {
+              toEmails = Array.from(dynamicToSet);
+              ccEmails = Array.from(dynamicCcSet);
+              bccEmails = Array.from(dynamicBccSet);
+
+              // Clean dynamic email routing fields from displayed query data so they do not clutter report tables or attachments
+              const cleanDynamicRoutingFields = (row) => {
+                if (!row || typeof row !== "object") return row;
+                const cleaned = { ...row };
+                const routingTargets = [
+                  "email_to",
+                  "to_email",
+                  "email_from",
+                  "email_cc",
+                  "cc_email",
+                  "email_bcc",
+                  "bcc_email",
+                ].map((k) => k.toLowerCase().replace(/[\s_-]/g, ""));
+
+                Object.keys(cleaned).forEach((k) => {
+                  const normalized = k.toLowerCase().replace(/[\s_-]/g, "");
+                  if (routingTargets.includes(normalized)) {
+                    delete cleaned[k];
+                  }
+                });
+                return cleaned;
+              };
+
+              for (const qk of queryKeys) {
+                if (Array.isArray(queryData[qk])) {
+                  queryData[qk] = queryData[qk].map(cleanDynamicRoutingFields);
+                }
+                if (
+                  queryData._rawResults &&
+                  Array.isArray(queryData._rawResults[qk])
+                ) {
+                  queryData._rawResults[qk] =
+                    queryData._rawResults[qk].map(cleanDynamicRoutingFields);
+                }
+              }
+            } else {
+              logger.warn(
+                "enable_dynamic_email is 'Y' but no valid recipient emails found in query results. Falling back to default recipients.",
+                {
+                  actionId: currentAction.id,
+                  defaultTo: toEmails,
+                  defaultCc: ccEmails,
+                  defaultBcc: bccEmails,
+                },
+              );
+            }
+          }
+
           let groupedQueryData = null;
 
           let sendPerCustomerEmails = false;
