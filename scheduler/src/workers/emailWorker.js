@@ -22,9 +22,7 @@ const {
   generateExcelBuffer,
   generatePdfBuffer,
 } = require("../services/attachmentService");
-const {
-  buildCorporateEmailHtml,
-} = require("../services/emailTemplateService");
+const { buildCorporateEmailHtml } = require("../services/emailTemplateService");
 const {
   processEmailQueueStatus,
 } = require("../services/emailQueueCronService");
@@ -296,7 +294,9 @@ const parseScheduleFromObject = (scheduleObj, tz = "UTC") => {
 const extractPlaceholders = (text) => {
   if (!text || typeof text !== "string") return [];
   const matches = text.match(/{{([^}]+)}}/g) || [];
-  return [...new Set(matches.map((m) => m.replace(/^{{\s*|\s*}}$/g, "").trim()))];
+  return [
+    ...new Set(matches.map((m) => m.replace(/^{{\s*|\s*}}$/g, "").trim())),
+  ];
 };
 
 const analyzePlaceholders = (text, availableData = {}) => {
@@ -320,7 +320,8 @@ const analyzePlaceholders = (text, availableData = {}) => {
       return {
         placeholder: `{{${rawName}}}`,
         reason: "Column/Property not found in query results or dataset",
-        suggestion: similar.length > 0 ? `Did you mean '${similar.join("', '")}'?` : null,
+        suggestion:
+          similar.length > 0 ? `Did you mean '${similar.join("', '")}'?` : null,
       };
     }
 
@@ -418,7 +419,8 @@ const startEmailWorker = () => {
     emailQueueName,
     async (job) => {
       let linkExpiryDate = "9999-12-31";
-      let currentEventName = job.data?.event_name || job.data?.eventName || null;
+      let currentEventName =
+        job.data?.event_name || job.data?.eventName || null;
 
       try {
         if (job.name === "send-email") {
@@ -839,9 +841,6 @@ const startEmailWorker = () => {
           let ccEmails = normalizeRecipients(currentAction.cc);
           let bccEmails = normalizeRecipients(currentAction.bcc);
 
-          // Handle enable_dynamic_email:
-          // When 'Y', extract recipient emails (to, cc, bcc) from the executed UDF query results.
-          // When 'N' (or not 'Y'), use the default to, cc, bcc from the action response.
           if (currentAction.enable_dynamic_email === "Y") {
             const dynamicToSet = new Set();
             const dynamicCcSet = new Set();
@@ -890,12 +889,16 @@ const startEmailWorker = () => {
               for (const row of rows) {
                 const toVal = getFieldValue(row, toCandidates);
                 if (toVal) {
-                  normalizeRecipients(toVal).forEach((e) => dynamicToSet.add(e));
+                  normalizeRecipients(toVal).forEach((e) =>
+                    dynamicToSet.add(e),
+                  );
                 }
 
                 const ccVal = getFieldValue(row, ccCandidates);
                 if (ccVal) {
-                  normalizeRecipients(ccVal).forEach((e) => dynamicCcSet.add(e));
+                  normalizeRecipients(ccVal).forEach((e) =>
+                    dynamicCcSet.add(e),
+                  );
                 }
 
                 const bccVal = getFieldValue(row, bccCandidates);
@@ -954,8 +957,9 @@ const startEmailWorker = () => {
                   queryData._rawResults &&
                   Array.isArray(queryData._rawResults[qk])
                 ) {
-                  queryData._rawResults[qk] =
-                    queryData._rawResults[qk].map(cleanDynamicRoutingFields);
+                  queryData._rawResults[qk] = queryData._rawResults[qk].map(
+                    cleanDynamicRoutingFields,
+                  );
                 }
               }
             } else {
@@ -1311,7 +1315,12 @@ const startEmailWorker = () => {
               logger.info("=== Customer-specific email response ===", {
                 actionId: currentAction.id,
                 customer_code: group.customer_code,
-                response: customerEmailResponse,
+                status:
+                  customerEmailResponse?.status ||
+                  customerEmailResponse?.data?.status ||
+                  200,
+                message:
+                  customerEmailResponse?.data?.message || "Email sent successfully",
               });
 
               logger.info("Customer-specific email sent successfully", {
@@ -1459,7 +1468,12 @@ const startEmailWorker = () => {
 
                   logger.info("=== All-data email response ===", {
                     actionId: currentAction.id,
-                    response: allDataEmailResponse,
+                    status:
+                      allDataEmailResponse?.status ||
+                      allDataEmailResponse?.data?.status ||
+                      200,
+                    message:
+                      allDataEmailResponse?.data?.message || "Email sent successfully",
                   });
 
                   logger.info(
@@ -1715,7 +1729,12 @@ const startEmailWorker = () => {
 
           logger.info("=== Send email response ===", {
             actionId: currentAction.id,
-            response: sendEmailResponse,
+            status:
+              sendEmailResponse?.status ||
+              sendEmailResponse?.data?.status ||
+              200,
+            message:
+              sendEmailResponse?.data?.message || "Email sent successfully",
           });
 
           logger.info("Email sent successfully", {
@@ -2380,22 +2399,31 @@ const startEmailWorker = () => {
               });
               //new change
 
-              const titleAnalysis = analyzePlaceholders(config.title, dynamicData);
-              const bodyAnalysis = analyzePlaceholders(config.msg_body, dynamicData);
+              const titleAnalysis = analyzePlaceholders(
+                config.title,
+                dynamicData,
+              );
+              const bodyAnalysis = analyzePlaceholders(
+                config.msg_body,
+                dynamicData,
+              );
               const allDiagnostics = [
                 ...titleAnalysis.diagnostics,
                 ...bodyAnalysis.diagnostics,
               ];
 
               if (allDiagnostics.length > 0) {
-                triggerLogger.warn("Unreplaced placeholders detected in email", {
-                  jobId: job.id,
-                  event_name: effectiveEventName,
-                  EntityId,
-                  Email_Event_Config_Id,
-                  diagnostics: allDiagnostics,
-                  unreplacedCount: allDiagnostics.length,
-                });
+                triggerLogger.warn(
+                  "Unreplaced placeholders detected in email",
+                  {
+                    jobId: job.id,
+                    event_name: effectiveEventName,
+                    EntityId,
+                    Email_Event_Config_Id,
+                    diagnostics: allDiagnostics,
+                    unreplacedCount: allDiagnostics.length,
+                  },
+                );
               } else {
                 triggerLogger.info("All placeholders replaced successfully", {
                   jobId: job.id,
@@ -2650,7 +2678,11 @@ const startEmailWorker = () => {
           let failureEventName = currentEventName || job.data?.event_name;
           if (!failureEventName && err?.message && err.message.includes(":")) {
             const possible = err.message.split(":")[0].trim();
-            if (possible && !possible.includes(" ") && !possible.toLowerCase().includes("error")) {
+            if (
+              possible &&
+              !possible.includes(" ") &&
+              !possible.toLowerCase().includes("error")
+            ) {
               failureEventName = possible;
             }
           }
