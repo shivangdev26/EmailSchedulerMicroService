@@ -1404,6 +1404,7 @@ const startEmailWorker = () => {
                     tableHtml: tableSectionsHtml,
                     rows: rawRows,
                     currentDateStr: dayjs().format("DD MMMM YYYY"),
+                    dbName: db,
                   });
                 }
               }
@@ -1559,6 +1560,7 @@ const startEmailWorker = () => {
                 tableHtml: tableSectionsHtml,
                 rows: rawRows,
                 currentDateStr: dayjs().format("DD MMMM YYYY"),
+                dbName: db,
               });
             }
           }
