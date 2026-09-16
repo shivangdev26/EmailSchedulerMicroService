@@ -1,1 +1,2 @@
 2026-06-12 12:00:47 +05:30: [LogCleanup] Truncated: log-cleanup-out-1.log
+2026-09-16 16:41:30 +05:30: [LogCleanup] Starting log cleanup worker (14-day retention)
