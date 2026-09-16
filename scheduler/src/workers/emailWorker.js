@@ -926,7 +926,6 @@ const startEmailWorker = () => {
               ccEmails = Array.from(dynamicCcSet);
               bccEmails = Array.from(dynamicBccSet);
 
-              // Clean dynamic email routing fields from displayed query data so they do not clutter report tables or attachments
               const cleanDynamicRoutingFields = (row) => {
                 if (!row || typeof row !== "object") return row;
                 const cleaned = { ...row };
@@ -1320,7 +1319,8 @@ const startEmailWorker = () => {
                   customerEmailResponse?.data?.status ||
                   200,
                 message:
-                  customerEmailResponse?.data?.message || "Email sent successfully",
+                  customerEmailResponse?.data?.message ||
+                  "Email sent successfully",
               });
 
               logger.info("Customer-specific email sent successfully", {
@@ -1473,7 +1473,8 @@ const startEmailWorker = () => {
                       allDataEmailResponse?.data?.status ||
                       200,
                     message:
-                      allDataEmailResponse?.data?.message || "Email sent successfully",
+                      allDataEmailResponse?.data?.message ||
+                      "Email sent successfully",
                   });
 
                   logger.info(
