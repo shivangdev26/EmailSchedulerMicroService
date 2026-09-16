@@ -1372,12 +1372,7 @@ const startEmailWorker = () => {
                     Array.isArray(queryData[k]) &&
                     queryData[k].length > 0,
                 );
-                if (
-                  firstQueryKey &&
-                  (currentAction.is_tabular_format === "Y" ||
-                    currentAction.is_excel === "Y" ||
-                    currentAction.is_pdf === "Y")
-                ) {
+                if (firstQueryKey) {
                   const rawRows = queryData[firstQueryKey] || [];
                   let tableSectionsHtml = "";
                   const queryKeys = Object.keys(queryData).filter(
@@ -1526,12 +1521,7 @@ const startEmailWorker = () => {
                 Array.isArray(queryData[k]) &&
                 queryData[k].length > 0,
             );
-            if (
-              firstQueryKey &&
-              (currentAction.is_tabular_format === "Y" ||
-                currentAction.is_excel === "Y" ||
-                currentAction.is_pdf === "Y")
-            ) {
+            if (firstQueryKey) {
               const rawRows = queryData[firstQueryKey] || [];
               let tableSectionsHtml = "";
               const queryKeys = Object.keys(queryData).filter(
