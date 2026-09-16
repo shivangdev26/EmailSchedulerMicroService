@@ -29,9 +29,7 @@ const {
   generateExcelBuffer,
   generatePdfBuffer,
 } = require("../services/emailScheduler/attachmentService");
-const {
-  buildCorporateEmailHtml,
-} = require("../services/emailTemplateService");
+const { buildCorporateEmailHtml } = require("../services/emailTemplateService");
 const {
   processEmailQueueStatus,
 } = require("../services/alert/emailQueueCronService");
@@ -850,9 +848,6 @@ const startEmailWorker = () => {
           let ccEmails = normalizeRecipients(currentAction.cc);
           let bccEmails = normalizeRecipients(currentAction.bcc);
 
-          // Handle enable_dynamic_email:
-          // When 'Y', extract recipient emails (to, cc, bcc) from the executed UDF query results.
-          // When 'N' (or not 'Y'), use the default to, cc, bcc from the action response.
           if (currentAction.enable_dynamic_email === "Y") {
             const dynamicToSet = new Set();
             const dynamicCcSet = new Set();
@@ -901,12 +896,16 @@ const startEmailWorker = () => {
               for (const row of rows) {
                 const toVal = getFieldValue(row, toCandidates);
                 if (toVal) {
-                  normalizeRecipients(toVal).forEach((e) => dynamicToSet.add(e));
+                  normalizeRecipients(toVal).forEach((e) =>
+                    dynamicToSet.add(e),
+                  );
                 }
 
                 const ccVal = getFieldValue(row, ccCandidates);
                 if (ccVal) {
-                  normalizeRecipients(ccVal).forEach((e) => dynamicCcSet.add(e));
+                  normalizeRecipients(ccVal).forEach((e) =>
+                    dynamicCcSet.add(e),
+                  );
                 }
 
                 const bccVal = getFieldValue(row, bccCandidates);
@@ -934,7 +933,6 @@ const startEmailWorker = () => {
               ccEmails = Array.from(dynamicCcSet);
               bccEmails = Array.from(dynamicBccSet);
 
-              // Clean dynamic email routing fields from displayed query data so they do not clutter report tables or attachments
               const cleanDynamicRoutingFields = (row) => {
                 if (!row || typeof row !== "object") return row;
                 const cleaned = { ...row };
@@ -965,8 +963,9 @@ const startEmailWorker = () => {
                   queryData._rawResults &&
                   Array.isArray(queryData._rawResults[qk])
                 ) {
-                  queryData._rawResults[qk] =
-                    queryData._rawResults[qk].map(cleanDynamicRoutingFields);
+                  queryData._rawResults[qk] = queryData._rawResults[qk].map(
+                    cleanDynamicRoutingFields,
+                  );
                 }
               }
             } else {
