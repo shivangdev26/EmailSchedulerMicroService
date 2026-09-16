@@ -210,6 +210,42 @@ const executeMultipleQueries = async ({ token, action, blApiUrl }) => {
   };
 };
 
+const formatCellValue = (val, keyName = "") => {
+  if (val === null || val === undefined || val === "") {
+    return `<span style="color: #94a3b8;">-</span>`;
+  }
+
+  const strVal = String(val).trim();
+
+  if (
+    /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?)?Z?$/.test(strVal) &&
+    dayjs(strVal).isValid()
+  ) {
+    return `<span style="color: #334155; font-size: 11px; white-space: nowrap;">${dayjs(strVal).format("DD MMM YYYY")}</span>`;
+  }
+
+  if (/overstay|delay|late|alert|fail|hazard|crit/i.test(strVal)) {
+    return `<span style="display: inline-block; padding: 2px 8px; border-radius: 12px; font-weight: 600; font-size: 10px; background-color: #fef2f2; color: #dc2626; border: 1px solid #fecaca; white-space: nowrap;">● ${strVal}</span>`;
+  }
+
+  if (/^(active|approved|success|completed|paid|20ft)$/i.test(strVal)) {
+    return `<span style="display: inline-block; padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 10px; background-color: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; white-space: nowrap;">${strVal}</span>`;
+  }
+  if (/^(40ft|in transit|in progress)$/i.test(strVal)) {
+    return `<span style="display: inline-block; padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 10px; background-color: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; white-space: nowrap;">${strVal}</span>`;
+  }
+
+  // Accent formatting for reference / ID columns
+  if (
+    /(^no\.?$|_no$|code$|^id$)/i.test(keyName) &&
+    /^[A-Za-z0-9_-]+$/.test(strVal)
+  ) {
+    return `<span style="color: #2563eb; font-weight: 600; font-size: 11px;">${strVal}</span>`;
+  }
+
+  return strVal;
+};
+
 const replaceQueryPlaceholders = (text, data) => {
   if (!text || !data) return text || "";
   return text.replace(
@@ -221,11 +257,28 @@ const replaceQueryPlaceholders = (text, data) => {
         if (value.length === 0) return "";
         const keys = Object.keys(value[0]);
 
-        let tableHtml = `<table style="width: auto; max-width: 100%; border-collapse: collapse; margin: 8px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 11px; text-align: left; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(0,0,0,0.05); border-radius: 4px; overflow: hidden;">`;
+        let tableHtml = `<div style="overflow-x: auto; margin: 12px 0; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); background-color: #ffffff;">`;
 
-        tableHtml += `<thead><tr style="background-color: #3b82f6; color: #ffffff;">`;
-        keys.forEach((k) => {
-          tableHtml += `<th style="padding: 3px; font-weight: 600; border-bottom: 1px solid #e2e8f0; border-right: 1px solid rgba(255,255,255,0.1); font-size: 11px; text-transform: uppercase;">${k}</th>`;
+        tableHtml += `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-bottom: 1px solid #f1f5f9;">`;
+        tableHtml += `<tr>`;
+        tableHtml += `<td align="left" style="padding: 10px 14px; vertical-align: middle;">`;
+        tableHtml += `<span style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 700; color: #0f172a;">Details</span>`;
+        tableHtml += `</td>`;
+        tableHtml += `<td align="right" style="padding: 10px 14px; vertical-align: middle; text-align: right;">`;
+        tableHtml += `<span style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 11px; color: #64748b; font-weight: 500;">Showing ${value.length} ${value.length === 1 ? "record" : "records"}</span>`;
+        tableHtml += `</td>`;
+        tableHtml += `</tr>`;
+        tableHtml += `</table>`;
+
+        tableHtml += `<table style="width: 100%; border-collapse: collapse; font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; font-size: 11px; text-align: left; background-color: #ffffff;">`;
+
+        tableHtml += `<thead><tr style="background-color: #f8fafc; border-bottom: 2px solid #e2e8f0;">`;
+        keys.forEach((k, idx) => {
+          const isLast = idx === keys.length - 1;
+          const label = k
+            .replace(/_/g, " ")
+            .replace(/\b\w/g, (c) => c.toUpperCase());
+          tableHtml += `<th style="padding: 8px 12px; font-weight: 700; font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase; color: #475569; text-align: left; ${!isLast ? "border-right: 1px solid #e2e8f0;" : ""} white-space: nowrap;">${label}</th>`;
         });
         tableHtml += `</tr></thead>`;
 
@@ -233,14 +286,15 @@ const replaceQueryPlaceholders = (text, data) => {
         value.forEach((row, index) => {
           const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
           tableHtml += `<tr style="background-color: ${rowBg};">`;
-          keys.forEach((k) => {
-            const cellVal =
-              row[k] !== null && row[k] !== undefined ? row[k] : "";
-            tableHtml += `<td style="padding: 3px; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; color: #475569; font-size: 11px;">${cellVal}</td>`;
+          keys.forEach((k, colIdx) => {
+            const rawVal = row[k];
+            const formattedVal = formatCellValue(rawVal, k);
+            const isLast = colIdx === keys.length - 1;
+            tableHtml += `<td style="padding: 8px 12px; border-bottom: 1px solid #f1f5f9; ${!isLast ? "border-right: 1px solid #f1f5f9;" : ""} color: #334155; font-size: 11px; vertical-align: middle; text-align: left; white-space: nowrap;">${formattedVal}</td>`;
           });
           tableHtml += `</tr>`;
         });
-        tableHtml += `</tbody></table>`;
+        tableHtml += `</tbody></table></div>`;
         return tableHtml;
       }
       return String(value);
@@ -248,17 +302,8 @@ const replaceQueryPlaceholders = (text, data) => {
   );
 };
 
-/**
- * Resolves dot-notation placeholders like {{user.name}} by fetching the relation ID
- * from the attachment record, querying the corresponding table, and replacing it.
- *
- * @param {Object} params
- * @param {string} params.text
- * @param {Object} params.attachmentRecord
- * @param {string} params.token
- * @param {string} params.blApiUrl
- * @returns {Promise<string>}
- */
+//new change
+
 const resolveDotPlaceholders = async ({
   text,
   attachmentRecord,

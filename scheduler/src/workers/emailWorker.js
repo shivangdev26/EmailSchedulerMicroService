@@ -30,6 +30,9 @@ const {
   generatePdfBuffer,
 } = require("../services/emailScheduler/attachmentService");
 const {
+  buildCorporateEmailHtml,
+} = require("../services/emailTemplateService");
+const {
   processEmailQueueStatus,
 } = require("../services/alert/emailQueueCronService");
 const {
@@ -1230,6 +1233,53 @@ const startEmailWorker = () => {
                   allDataHtmlBody,
                   queryData,
                 );
+
+                const firstQueryKey = Object.keys(queryData).find(
+                  (k) =>
+                    k.startsWith("query_result_") &&
+                    Array.isArray(queryData[k]) &&
+                    queryData[k].length > 0,
+                );
+                if (
+                  firstQueryKey &&
+                  (currentAction.is_tabular_format === "Y" ||
+                    currentAction.is_excel === "Y" ||
+                    currentAction.is_pdf === "Y")
+                ) {
+                  const rawRows = queryData[firstQueryKey] || [];
+                  let tableSectionsHtml = "";
+                  const queryKeys = Object.keys(queryData).filter(
+                    (k) =>
+                      k.startsWith("query_result_") &&
+                      Array.isArray(queryData[k]) &&
+                      queryData[k].length > 0,
+                  );
+                  queryKeys.forEach((qk, idx) => {
+                    const subKey = `subtitle_query_${qk.replace("query_result_", "")}`;
+                    const subTitle =
+                      queryData[subKey] ||
+                      (queryKeys.length > 1 ? `Report Section ${idx + 1}` : "");
+                    if (subTitle && queryKeys.length > 1) {
+                      tableSectionsHtml += `<div style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 16px 0 8px 0;">${subTitle}</div>`;
+                    }
+                    tableSectionsHtml += replaceQueryPlaceholders(
+                      `{${qk}}`,
+                      queryData,
+                    );
+                  });
+
+                  allDataHtmlBody = buildCorporateEmailHtml({
+                    title:
+                      currentAction.display_name ||
+                      currentAction.subject ||
+                      queryData.subtitle_query_0 ||
+                      "Shipment Status Report",
+                    subtitle: "Container movements at a glance",
+                    tableHtml: tableSectionsHtml,
+                    rows: rawRows,
+                    currentDateStr: dayjs().format("DD MMMM YYYY"),
+                  });
+                }
               }
 
               const allDataAttachments =
@@ -1337,6 +1387,53 @@ const startEmailWorker = () => {
             subject = replaceQueryPlaceholders(subject, queryData);
             textBody = replaceQueryPlaceholders(textBody, queryData);
             htmlBody = replaceQueryPlaceholders(htmlBody, queryData);
+
+            const firstQueryKey = Object.keys(queryData).find(
+              (k) =>
+                k.startsWith("query_result_") &&
+                Array.isArray(queryData[k]) &&
+                queryData[k].length > 0,
+            );
+            if (
+              firstQueryKey &&
+              (currentAction.is_tabular_format === "Y" ||
+                currentAction.is_excel === "Y" ||
+                currentAction.is_pdf === "Y")
+            ) {
+              const rawRows = queryData[firstQueryKey] || [];
+              let tableSectionsHtml = "";
+              const queryKeys = Object.keys(queryData).filter(
+                (k) =>
+                  k.startsWith("query_result_") &&
+                  Array.isArray(queryData[k]) &&
+                  queryData[k].length > 0,
+              );
+              queryKeys.forEach((qk, idx) => {
+                const subKey = `subtitle_query_${qk.replace("query_result_", "")}`;
+                const subTitle =
+                  queryData[subKey] ||
+                  (queryKeys.length > 1 ? `Report Section ${idx + 1}` : "");
+                if (subTitle && queryKeys.length > 1) {
+                  tableSectionsHtml += `<div style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 16px 0 8px 0;">${subTitle}</div>`;
+                }
+                tableSectionsHtml += replaceQueryPlaceholders(
+                  `{${qk}}`,
+                  queryData,
+                );
+              });
+
+              htmlBody = buildCorporateEmailHtml({
+                title:
+                  currentAction.display_name ||
+                  currentAction.subject ||
+                  queryData.subtitle_query_0 ||
+                  "Shipment Status Report",
+                subtitle: "Container movements at a glance",
+                tableHtml: tableSectionsHtml,
+                rows: rawRows,
+                currentDateStr: dayjs().format("DD MMMM YYYY"),
+              });
+            }
           }
 
           const emailPayload = {
