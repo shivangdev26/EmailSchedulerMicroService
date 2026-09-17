@@ -543,7 +543,17 @@ const resolveDotPlaceholders = async ({
       const relKeys = Object.keys(relRecord);
 
       let fieldValue;
-      if (relRecord["name"] !== undefined && relRecord["name"] !== null) {
+      const matchedFieldKey = relKeys.find(
+        (k) => k.toLowerCase() === field.toLowerCase(),
+      );
+
+      if (
+        matchedFieldKey &&
+        relRecord[matchedFieldKey] !== undefined &&
+        relRecord[matchedFieldKey] !== null
+      ) {
+        fieldValue = relRecord[matchedFieldKey];
+      } else if (relRecord["name"] !== undefined && relRecord["name"] !== null) {
         fieldValue = relRecord["name"];
       } else if (relKeys.length >= 2) {
         const secondKey = relKeys[1];
@@ -552,10 +562,7 @@ const resolveDotPlaceholders = async ({
             ? relRecord[secondKey]
             : "";
       } else {
-        fieldValue =
-          relRecord[field] !== undefined && relRecord[field] !== null
-            ? relRecord[field]
-            : "";
+        fieldValue = "";
       }
 
       const escapedMatch = fullMatch.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
