@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 const logsDir = path.join(__dirname, "..", "logs");
-const maxAgeMs = 14 * 24 * 60 * 60 * 1000;
+const maxAgeMs = 1 * 24 * 60 * 60 * 1000;
 
 const cleanupLogs = () => {
   try {
@@ -28,6 +28,6 @@ const cleanupLogs = () => {
   }
 };
 
-console.log("[LogCleanup] Starting log cleanup worker (14-day retention)");
+console.log("[LogCleanup] Starting log cleanup worker (1-day retention)");
 cleanupLogs();
-setInterval(cleanupLogs, 24 * 60 * 60 * 1000); // Check once a day
+setInterval(cleanupLogs, 60 * 60 * 1000);

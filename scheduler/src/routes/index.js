@@ -47,20 +47,36 @@ router.post(
 );
 
 router.post("/alerts/test", async (req, res) => {
-  const { fetchDomainData } = require("../services/urlService");
-  const { getAuthToken } = require("../services/apiAuthService");
-  const { fetchAlertSetups, executeAlertQuery } = require("../services/alertService");
+  const { fetchDomainData } = require("../services/common/urlService");
+  const { getAuthToken } = require("../services/common/apiAuthService");
+  const {
+    fetchAlertSetups,
+    executeAlertQuery,
+  } = require("../services/alert/alertService");
   const { connection } = require("../bullmq");
 
   const dbName = req.body?.dbName || "DCCBusinessSuite_mowara_test";
   try {
     const domainData = await fetchDomainData(dbName);
     if (!domainData || !domainData.BLApiUrl) {
-      return res.status(400).json({ success: false, error: "Could not fetch BLApiUrl for dbName: " + dbName });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          error: "Could not fetch BLApiUrl for dbName: " + dbName,
+        });
     }
 
-    const token = await getAuthToken(connection, dbName, true, domainData.BLApiUrl);
-    const alertSetups = await fetchAlertSetups({ token, blApiUrl: domainData.BLApiUrl });
+    const token = await getAuthToken(
+      connection,
+      dbName,
+      true,
+      domainData.BLApiUrl,
+    );
+    const alertSetups = await fetchAlertSetups({
+      token,
+      blApiUrl: domainData.BLApiUrl,
+    });
 
     const results = [];
     for (const alert of alertSetups) {
@@ -69,11 +85,13 @@ router.post("/alerts/test", async (req, res) => {
         queryResult = await executeAlertQuery({
           token,
           query: alert.alert_query,
-          blApiUrl: domainData.BLApiUrl
+          blApiUrl: domainData.BLApiUrl,
         });
       }
 
-      const eligibleUsers = (alert.m_alert_setup_user || []).filter(u => u.alert === "Y");
+      const eligibleUsers = (alert.m_alert_setup_user || []).filter(
+        (u) => u.alert === "Y",
+      );
       results.push({
         alertId: alert.id,
         title: alert.title,
@@ -81,7 +99,7 @@ router.post("/alerts/test", async (req, res) => {
         query: alert.alert_query,
         eligibleUsers,
         queryResultCount: Array.isArray(queryResult) ? queryResult.length : 0,
-        queryResult
+        queryResult,
       });
     }
 
@@ -90,7 +108,7 @@ router.post("/alerts/test", async (req, res) => {
       dbName,
       blApiUrl: domainData.BLApiUrl,
       alertCount: alertSetups.length,
-      alerts: results
+      alerts: results,
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

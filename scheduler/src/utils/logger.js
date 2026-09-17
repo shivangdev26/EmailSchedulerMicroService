@@ -28,7 +28,7 @@ const consoleFormat = winston.format.combine(
 const combinedFileRotateTransport = new winston.transports.DailyRotateFile({
   filename: path.join(logsDir, "combined-%DATE%.log"),
   datePattern: "YYYY-MM-DD",
-  maxFiles: "14d",
+  maxFiles: "1d",
   format: defaultFormat,
 });
 
@@ -36,7 +36,7 @@ const errorFileRotateTransport = new winston.transports.DailyRotateFile({
   filename: path.join(logsDir, "error-%DATE%.log"),
   datePattern: "YYYY-MM-DD",
   level: "error",
-  maxFiles: "30d",
+  maxFiles: "1d",
   format: defaultFormat,
 });
 
@@ -144,7 +144,7 @@ const triggerFileFormat = winston.format.combine(
 const triggerEmailRotateTransport = new winston.transports.DailyRotateFile({
   filename: path.join(logsDir, "trigger-email-%DATE%.log"),
   datePattern: "YYYY-MM-DD",
-  maxFiles: "30d",
+  maxFiles: "1d",
   format: triggerFileFormat,
 });
 
@@ -153,7 +153,7 @@ const triggerEmailErrorRotateTransport = new winston.transports.DailyRotateFile(
     filename: path.join(logsDir, "trigger-email-error-%DATE%.log"),
     datePattern: "YYYY-MM-DD",
     level: "warn",
-    maxFiles: "30d",
+    maxFiles: "1d",
     format: triggerFileFormat,
   },
 );

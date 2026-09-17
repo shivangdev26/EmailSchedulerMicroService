@@ -3,11 +3,16 @@ const { connection, emailQueueName } = require("../bullmq");
 const {
   fetchSchedulerActions,
   buildActionApiHeaders,
-} = require("../services/emailerActionService");
+} = require("../services/emailScheduler/emailerActionService");
 const axios = require("axios");
-const { fetchSmtpConfig } = require("../services/emailerSmtpAccountService");
-const { getAuthToken } = require("../services/apiAuthService");
-const { replaceApiUrlPrefix, fetchDomainData } = require("../services/urlService");
+const {
+  fetchSmtpConfig,
+} = require("../services/emailScheduler/emailerSmtpAccountService");
+const { getAuthToken } = require("../services/common/apiAuthService");
+const {
+  replaceApiUrlPrefix,
+  fetchDomainData,
+} = require("../services/common/urlService");
 const logger = require("../utils/logger");
 
 const dayjs = require("dayjs");
@@ -68,7 +73,6 @@ const fetchAllDatabases = async (retries = 3) => {
       const response = await axios.get(DB_API, { timeout: 30000 });
       const databases = response.data?.data || [];
 
-      // Filter databases where email_service_type is 'N'
       const filteredDatabases = databases.filter(
         (db) => db.email_service_type === "N",
       );

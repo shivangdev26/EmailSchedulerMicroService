@@ -1,7 +1,7 @@
 const axios = require("axios");
-const { buildApiHeaders } = require("./apiAuthService");
-const { replaceApiUrlPrefix } = require("./urlService");
-const logger = require("../utils/logger");
+const { buildApiHeaders } = require("../common/apiAuthService");
+const { replaceApiUrlPrefix } = require("../common/urlService");
+const logger = require("../../utils/logger");
 
 /**
  * Fetches all active Alert Setups for a given database.
@@ -47,6 +47,11 @@ const fetchAlertSetupById = async ({ token, blApiUrl, id }) => {
       headers: buildApiHeaders({ bearerToken: token }),
     });
 
+    logger.info("Fetching setups by id", () => ({ url, id }));
+    logger.info("Fetching setups by id response", () => ({ res: res.data }));
+    logger.warn("Fetching setups by id response data", ({ data }) => ({
+      data: data?.data || data?.tblData || [],
+    }));
     let data = res.data?.data || res.data?.tblData || [];
     if (data && !Array.isArray(data)) {
       data = [data];

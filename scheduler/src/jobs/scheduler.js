@@ -1,7 +1,7 @@
 const { Queue } = require("bullmq");
 const { connection, emailQueueName } = require("../bullmq");
-const { fetchSchedulerActions } = require("../services/emailerActionService");
-const { fetchSmtpConfig } = require("../services/emailerSmtpAccountService");
+const { fetchSchedulerActions } = require("../services/emailScheduler/emailerActionService");
+const { fetchSmtpConfig } = require("../services/emailScheduler/emailerSmtpAccountService");
 
 const emailQueue = new Queue(emailQueueName, { connection });
 

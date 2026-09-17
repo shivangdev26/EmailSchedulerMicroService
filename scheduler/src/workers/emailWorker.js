@@ -7,29 +7,36 @@ const emailQueue = new Queue(emailQueueName, { connection });
 const {
   sendEmail,
   getSendEmailUrl,
-} = require("../services/emailSenderService");
-const { getAuthToken, buildApiHeaders } = require("../services/apiAuthService");
-const { fetchSmtpConfig } = require("../services/emailerSmtpAccountService");
-const { updateEmailQueueStatus } = require("../services/ackService");
+} = require("../services/common/emailSenderService");
+const {
+  getAuthToken,
+  buildApiHeaders,
+} = require("../services/common/apiAuthService");
+const {
+  fetchSmtpConfig,
+} = require("../services/emailScheduler/emailerSmtpAccountService");
+const {
+  updateEmailQueueStatus,
+} = require("../services/emailScheduler/ackService");
 const {
   fetchUdfData,
   replacePlaceholders,
   executeMultipleQueries,
   replaceQueryPlaceholders,
   resolveDotPlaceholders,
-} = require("../services/udfService");
+} = require("../services/emailScheduler/udfService");
 const {
   generateExcelBuffer,
   generatePdfBuffer,
-} = require("../services/attachmentService");
+} = require("../services/emailScheduler/attachmentService");
 const { buildCorporateEmailHtml } = require("../services/emailTemplateService");
 const {
   processEmailQueueStatus,
-} = require("../services/emailQueueCronService");
+} = require("../services/alert/emailQueueCronService");
 const {
   fetchDomainData,
   replaceApiUrlPrefix,
-} = require("../services/urlService");
+} = require("../services/common/urlService");
 const axios = require("axios");
 const { logger, triggerLogger } = require("../utils/logger");
 

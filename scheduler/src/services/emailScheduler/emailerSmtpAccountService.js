@@ -1,5 +1,5 @@
-const { buildApiHeaders, getAuthToken } = require("./apiAuthService");
-const { replaceApiUrlPrefix } = require("./urlService");
+const { buildApiHeaders, getAuthToken } = require("../common/apiAuthService");
+const { replaceApiUrlPrefix } = require("../common/urlService");
 
 const defaultSmtpConfigUrl =
   "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerSMTPAccount/2";
@@ -44,37 +44,6 @@ const unwrapSmtpConfig = (payload) => {
 
   return payload;
 };
-
-// const fetchSmtpConfig = async () => {
-//   const url = getSmtpConfigUrl();
-
-//   console.log(" Ccalling smtp api:", url);
-
-//   const response = await fetch(url, {
-//     method: "GET",
-//     headers: buildHeaders(),
-//   });
-
-//   console.log(" SMTP API status:", response.status);
-
-//   const payload = await response.json();
-
-//   console.log(" Raw smtp:");
-//   console.dir(payload, { depth: null });
-
-//   if (payload && typeof payload === "object" && Number(payload.status) >= 400) {
-//     throw new Error(
-//       `SMTP config request failed with API status ${payload.status}: ${payload.message || "Unknown API error"}`,
-//     );
-//   }
-
-//   const unwrapped = unwrapSmtpConfig(payload);
-
-//   console.log("Unwrappted smp config:");
-//   console.dir(unwrapped, { depth: null });
-
-//   return unwrapped;
-// };
 
 const fetchSmtpConfig = async ({
   token,

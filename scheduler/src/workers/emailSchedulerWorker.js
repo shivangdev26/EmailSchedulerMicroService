@@ -317,7 +317,7 @@
 // };
 const { Worker } = require("bullmq");
 const { connection, emailQueueName } = require("../bullmq");
-const { sendEmail } = require("../services/emailSenderService");
+const { sendEmail } = require("../services/common/emailSenderService");
 
 const initializeEmailWorker = () => {
   return new Worker(
