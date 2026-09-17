@@ -399,6 +399,67 @@ const buildEmailPayloadFromConfig = (config, smtp, attachments = []) => {
   return payload;
 };
 
+const triggerAfterEmailSent = async ({
+  connection,
+  db,
+  actionId,
+  blApiUrl,
+}) => {
+  try {
+    const baseUrl = process.env.UDF_QUERY_URL;
+    if (!baseUrl) {
+      logger.warn(
+        "UDF_QUERY_URL is not defined, skipping post-email trigger SP",
+        { actionId, db },
+      );
+      return;
+    }
+
+    const token = await getAuthToken(connection, db);
+    if (!token) {
+      logger.warn("Could not get auth token for post-email trigger SP", {
+        actionId,
+        db,
+      });
+      return;
+    }
+
+    const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
+    const query = `EXEC sp_trigger_after_email_sent_event ${actionId}`;
+
+    logger.info("Executing post-email trigger stored procedure", {
+      actionId,
+      database: db,
+      query,
+      url,
+    });
+
+    const res = await axios({
+      method: "POST",
+      url,
+      headers: {
+        ...buildApiHeaders({ bearerToken: token }),
+        "Content-Type": "application/json",
+      },
+      data: { query },
+    });
+
+    logger.info("Post-email trigger SP executed successfully", {
+      actionId,
+      database: db,
+      status: res.status,
+    });
+  } catch (err) {
+    logger.error("Failed to execute post-email trigger SP", {
+      actionId,
+      database: db,
+      error: err.message,
+      status: err.response?.status,
+      data: err.response?.data,
+    });
+  }
+};
+
 const startEmailWorker = () => {
   logger.info("Starting Email Worker...");
 
@@ -1496,6 +1557,14 @@ const startEmailWorker = () => {
               actionId: currentAction.id,
               customerCount: groupedArray.length,
             });
+
+            await triggerAfterEmailSent({
+              connection,
+              db,
+              actionId: currentAction.id,
+              blApiUrl: currentAction.bl_api_url,
+            });
+
             return;
           }
 
@@ -1734,6 +1803,14 @@ const startEmailWorker = () => {
             actionId: currentAction.id,
             database: db,
           });
+
+          await triggerAfterEmailSent({
+            connection,
+            db,
+            actionId: currentAction.id,
+            blApiUrl: currentAction.bl_api_url,
+          });
+
           return;
         }
 
