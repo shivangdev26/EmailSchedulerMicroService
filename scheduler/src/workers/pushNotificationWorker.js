@@ -13,7 +13,7 @@ const logger = require("../utils/logger");
 let isPolling = false;
 const POLL_INTERVAL =
   Number(process.env.PUSH_NOTIFICATION_POLL_INTERVAL) || 15000;
-const CONCURRENCY = Number(process.env.PUSH_NOTIFICATION_CONCURRENCY) || 10;
+const CONCURRENCY = Number(process.env.PUSH_NOTIFICATION_CONCURRENCY) || 2;
 const BATCH_LIMIT = Number(process.env.PUSH_NOTIFICATION_BATCH_LIMIT) || 100;
 
 const DB_API =
@@ -28,8 +28,12 @@ const fetchAllDatabases = async (retries = 3) => {
     try {
       const response = await axios.get(DB_API, { timeout: 30000 });
       const databases = response.data?.data || [];
-      const dbNames = databases.map((db) => db.DBName).filter(Boolean);
-      return [...new Set(dbNames)];
+      const filtered = databases.filter(
+        (db) => db.email_service_type === "N",
+      );
+      const dbNames = filtered.map((db) => db.DBName).filter(Boolean);
+      const unique = [...new Set(dbNames)];
+      return unique.length > 0 ? unique : ["DCCBusinessSuite_mowara_test"];
     } catch (err) {
       lastError = err;
       if (i < retries - 1) {
@@ -40,11 +44,8 @@ const fetchAllDatabases = async (retries = 3) => {
   logger.warn("PushNotification: Falling back to default database", {
     error: lastError?.message,
   });
+  return ["DCCBusinessSuite_mowara_test"];
 };
-
-// const fetchAllDatabases = async () => {
-//   return ["DCCBusinessSuite_mowara_test"];
-// };
 
 const pollPushNotifications = async () => {
   if (isPolling) {

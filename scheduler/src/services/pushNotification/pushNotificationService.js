@@ -791,20 +791,40 @@ const dispatchNotificationEmail = async ({
       process.env.SEND_EMAIL_API_TOKEN ||
       "EAAWOFw8QuSgBOZB6IYFbdSTpTBWD9pXeI5DEZB8ZCs8Ivtg7Fopi9llcc5hddMgUx65IiLe7cZCJevlWMV7JVkTbwm8qG7FMDh3PMoiGabhuufRtgRV32gy0Ttw0XeZAJcBj48gEywbPrQ3K6wxL0ZBabBfsVhGBcqVTxGWHJ1UZBUXPkKoMiJ1QbIHnBAu0pL1";
 
-    const emailRes = await axios.post(sendEmailUrl, emailPayload, {
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      timeout: 30000,
-    });
+    let emailRes = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        emailRes = await axios.post(sendEmailUrl, emailPayload, {
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          timeout: 30000,
+        });
+        break;
+      } catch (err) {
+        if (err.response?.status === 429 && attempt < 3) {
+          logger.warn(
+            `Push notification email 429 rate limit hit, retrying attempt ${attempt + 1} in 2s...`,
+            {
+              notificationId,
+              recipient: recipientEmail,
+            },
+          );
+          await sleep(2000 * attempt);
+        } else {
+          throw err;
+        }
+      }
+    }
 
     logger.info("Push notification email dispatched successfully", {
       notificationId,
       recipient: recipientEmail,
-      status: emailRes.status,
+      status: emailRes?.status,
     });
+    await sleep(500);
   } catch (emailErr) {
     logger.error("Failed to dispatch push notification email", {
       notificationId,
