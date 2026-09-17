@@ -7,6 +7,7 @@ const {
 const axios = require("axios");
 const { fetchSmtpConfig } = require("../services/emailerSmtpAccountService");
 const { getAuthToken } = require("../services/apiAuthService");
+const { replaceApiUrlPrefix, fetchDomainData } = require("../services/urlService");
 const logger = require("../utils/logger");
 
 const dayjs = require("dayjs");
@@ -428,9 +429,18 @@ const pollScheduler = async () => {
           if (!token) return null;
 
           try {
-            const listRes = await fetchSchedulerActions(undefined, token);
+            const domainData = await fetchDomainData(db);
+            const blApiUrl = domainData?.BLApiUrl;
+
+            const baseActionsUrl =
+              process.env.EMAILER_ACTIONS_URL ||
+              "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/Common/GetEmailerActions?pageSize=1000";
+            const actionsUrl = replaceApiUrlPrefix(baseActionsUrl, blApiUrl);
+
+            const listRes = await fetchSchedulerActions(actionsUrl, token);
             logger.debug(`Fetched scheduler actions for database`, {
               database: db,
+              actionsUrl,
               response: listRes,
             });
             if (listRes && !smtpToken) {
@@ -454,13 +464,15 @@ const pollScheduler = async () => {
                   scheduleDetails: action.schedule_details,
                 });
                 try {
-                  const url = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerAction/${action.id}`;
+                  const baseActionUrl = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerAction/${action.id}`;
+                  const url = replaceApiUrlPrefix(baseActionUrl, blApiUrl);
                   const headers = buildActionApiHeaders(token);
 
                   logger.info(
                     `=== Fetching complete details for action ${action.id} ===`,
                     {
                       url: url,
+                      database: db,
                     },
                   );
 
@@ -480,6 +492,7 @@ const pollScheduler = async () => {
                     actionData = {
                       ...response.data.data[0],
                       ...action,
+                      bl_api_url: blApiUrl,
                       m_emailer_action_schedule:
                         response.data.data[0].m_emailer_action_schedule,
                     };
@@ -493,6 +506,7 @@ const pollScheduler = async () => {
                     actionData = {
                       ...response.data.tblData[0],
                       ...action,
+                      bl_api_url: blApiUrl,
                       m_emailer_action_schedule:
                         response.data.tblData[0].m_emailer_action_schedule,
                     };
@@ -510,12 +524,16 @@ const pollScheduler = async () => {
                     },
                   );
 
+                  if (actionData) actionData.bl_api_url = blApiUrl;
+                  else action.bl_api_url = blApiUrl;
+
                   return actionData || action;
                 } catch (err) {
                   logger.warn(`Failed to fetch complete details for action`, {
                     actionId: action.id,
                     error: err.message,
                   });
+                  action.bl_api_url = blApiUrl;
                   return action;
                 }
               }),
@@ -538,6 +556,7 @@ const pollScheduler = async () => {
                 raw: { ...listRes.raw, tblData: validActions },
               },
               token,
+              blApiUrl,
             };
           } catch {
             return null;
@@ -564,7 +583,7 @@ const pollScheduler = async () => {
 
     const activeJobKeys = new Set();
 
-    for (const { db, res } of allTenants) {
+    for (const { db, res, token: tenantToken, blApiUrl } of allTenants) {
       const actions = res.raw?.tblData || [];
 
       for (const action of actions) {
@@ -593,7 +612,27 @@ const pollScheduler = async () => {
           email_service_type: action.email_service_type,
         });
 
-        const payload = { action, smtp, db };
+        let actionSmtp = smtp;
+        try {
+          const customSmtp = await fetchSmtpConfig({
+            token: tenantToken,
+            connection,
+            dbName: db,
+            blApiUrl,
+            emailAccountId: action.email_accountid || action.email_account_id,
+          });
+          if (customSmtp?.email_address) {
+            actionSmtp = customSmtp;
+          }
+        } catch (e) {
+          logger.warn("Failed to fetch tenant SMTP config, using fallback", {
+            actionId: action.id,
+            database: db,
+            error: e.message,
+          });
+        }
+
+        const payload = { action, smtp: actionSmtp, db };
         const tz = action.timezone || "UTC";
         logger.info("=== Action timezone ===", {
           actionId: action.id,

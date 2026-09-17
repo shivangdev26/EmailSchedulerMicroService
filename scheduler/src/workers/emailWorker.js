@@ -426,7 +426,6 @@ const triggerAfterEmailSent = async ({
 
     const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
     const query = `EXEC sp_trigger_after_email_sent_event ${actionId}`;
-
     logger.info("Executing post-email trigger stored procedure", {
       actionId,
       database: db,
@@ -521,24 +520,12 @@ const startEmailWorker = () => {
           try {
             const token = await getAuthToken(connection, db);
             if (token) {
-              const url = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerAction/${action.id}`;
+              const domainData = await fetchDomainData(db);
+              const blApiUrl = domainData?.BLApiUrl || action.bl_api_url;
+              const baseActionUrl = `https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/BLv2_demo/api/EmailerAction/${action.id}`;
+              const url = replaceApiUrlPrefix(baseActionUrl, blApiUrl);
               const headers = buildApiHeaders({ bearerToken: token });
               const response = await axios.get(url, { headers });
-
-              // if (response.data?.data?.length > 0) {
-              //   const freshActionData = response.data.data[0];
-              //   currentAction = {
-              //     ...action,
-              //     ...freshActionData,
-              //     // Keep schedule_details from original payload (job data)
-              //     schedule_details:
-              //       action.schedule_details || freshActionData.schedule_details,
-              //     m_emailer_action_schedule:
-              //       freshActionData.m_emailer_action_schedule,
-              //     // Make sure is_active is definitely from fresh data
-              //     is_active: freshActionData.is_active,
-              //   };
-              // }
 
               let freshActionData = null;
               if (Array.isArray(response.data) && response.data.length > 0) {
@@ -566,6 +553,7 @@ const startEmailWorker = () => {
                 currentAction = {
                   ...action,
                   ...freshActionData,
+                  bl_api_url: blApiUrl,
                   schedule_details:
                     freshActionData.schedule_details || action.schedule_details,
                   m_emailer_action_schedule:
