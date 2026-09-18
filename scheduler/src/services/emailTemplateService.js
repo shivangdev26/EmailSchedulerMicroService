@@ -258,7 +258,8 @@ const formatUserIntroHtml = ({
 
 const buildCorporateEmailHtml = ({
   title = "Shipment Status Report",
-  subtitle = "Container movements at a glance",
+  subtitle = "",
+  bodyContent = "",
   introHtml = "",
   userBody = "",
   queryData = {},
@@ -275,8 +276,11 @@ const buildCorporateEmailHtml = ({
     .replace(/_/g, " ")
     .replace(/\b([a-z])/g, (c) => c.toUpperCase());
 
-  const resolvedIntro =
-    introHtml || formatUserIntroHtml({ userBody, queryData, subtitle });
+  const finalBodyContent =
+    bodyContent ||
+    (userBody ? formatUserIntroHtml({ userBody, queryData, subtitle }) : "") ||
+    tableHtml ||
+    "";
 
   return `
 <!DOCTYPE html>
@@ -291,28 +295,28 @@ const buildCorporateEmailHtml = ({
       -ms-text-size-adjust: 100%;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
-    .email-user-intro h1, .email-user-intro h2, .email-user-intro h3, .email-user-intro h4 {
+    .email-user-content h1, .email-user-content h2, .email-user-content h3, .email-user-content h4 {
       margin-top: 0;
       margin-bottom: 8px;
       color: #0f172a;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
-    .email-user-intro h2 {
+    .email-user-content h2 {
       font-size: 16px;
       font-weight: 700;
       line-height: 1.3;
     }
-    .email-user-intro h3 {
+    .email-user-content h3 {
       font-size: 15px;
       font-weight: 600;
       line-height: 1.3;
     }
-    .email-user-intro h4 {
+    .email-user-content h4 {
       font-size: 14px;
       font-weight: 600;
       line-height: 1.3;
     }
-    .email-user-intro p {
+    .email-user-content p {
       margin: 0 0 8px 0;
       line-height: 1.5;
       color: #475569;
@@ -362,7 +366,7 @@ const buildCorporateEmailHtml = ({
                       ${displayTitle}
                     </div>
                     <div style="font-size: 13px; color: #cbd5e1; font-weight: 500; margin-top: 6px;">
-                      DCC NG &nbsp;|&nbsp; Enterprise Logistics Operations
+                      ${brandName} &nbsp;|&nbsp; Operations Report
                     </div>
                     <!-- Accent Line -->
                     <div style="width: 44px; height: 3px; background-color: #3b82f6; border-radius: 2px; margin: 16px 0 20px 0;"></div>
@@ -371,7 +375,7 @@ const buildCorporateEmailHtml = ({
                     <table width="100%" cellpadding="0" cellspacing="0" border="0">
                       <tr>
                         <td align="left" style="font-size: 11px; color: #94a3b8; font-weight: 500; letter-spacing: 0.2px;">
-                          Automate operations. Gain predictive insights. Scale with efficiency.
+                          ${currentDateStr}
                         </td>
                         <td align="right" style="font-size: 10px; color: #cbd5e1; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;">
                           ${brandName}
@@ -384,27 +388,12 @@ const buildCorporateEmailHtml = ({
             </td>
           </tr>
 
-          <!-- 3. Greeting & Intro Card -->
+          <!-- 3. Dynamic KPI Summary Stat Cards (Row of 4 Cards) -->
+          ${
+            rows && rows.length > 0
+              ? `
           <tr>
-            <td style="padding: 24px 32px 14px 32px; background-color: #ffffff; color: #334155;">
-              ${
-                resolvedIntro
-                  ? `<div class="email-user-intro" style="font-size: 14px; color: #334155; line-height: 1.6;">${resolvedIntro}</div>`
-                  : `
-              <div style="font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 6px;">
-                Hello Valued Customer,
-              </div>
-              <div style="font-size: 13px; color: #475569; line-height: 1.6;">
-                Please find below the latest <strong>${displayTitle}</strong> generated from <strong>${brandName}</strong>. This report provides an overview of operations, tracking details and status alerts.
-              </div>
-                  `
-              }
-            </td>
-          </tr>
-
-          <!-- 4. Dynamic KPI Summary Stat Cards (Row of 4 Cards) -->
-          <tr>
-            <td style="padding: 10px 32px 20px 32px; background-color: #ffffff;">
+            <td style="padding: 20px 32px 10px 32px; background-color: #ffffff;">
               <table width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
                   <!-- Card 1: Total Shipments -->
@@ -484,7 +473,7 @@ const buildCorporateEmailHtml = ({
                     <table width="100%" cellpadding="0" cellspacing="0" border="0">
                       <tr>
                         <td align="left" style="vertical-align: middle;">
-                          <div style="width: 28px; height: 28px; background-color: #ffedd5; border-radius: 6px; text-align: center; line-height: 28px; font-size: 14px; display: inline-block;">
+                          <div style="width: 28px; height: 28px; background-color: #ffedd5; border-radius: 6px; text-align: center; line-line: 28px; font-size: 14px; display: inline-block;">
                             ⏱️
                           </div>
                         </td>
@@ -504,34 +493,16 @@ const buildCorporateEmailHtml = ({
               </table>
             </td>
           </tr>
+              `
+              : ""
+          }
 
-          <!-- 5. Data Table Section -->
+          <!-- 4. Email Body & Data Content -->
           <tr>
-            <td style="padding: 6px 32px 20px 32px; background-color: #ffffff;">
-              ${tableHtml}
-            </td>
-          </tr>
-
-          <!-- 6. Partnership Note -->
-          <tr>
-            <td style="padding: 20px 32px 24px 32px; background-color: #f8fafc; border-top: 1px solid #e2e8f0; border-radius: 0 0 12px 12px;">
-              <table cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                  <td style="vertical-align: top; padding-right: 12px;">
-                    <div style="width: 36px; height: 36px; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 50%; text-align: center; line-height: 36px; font-size: 18px;">
-                      🤝
-                    </div>
-                  </td>
-                  <td style="vertical-align: middle;">
-                    <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 2px;">
-                      Thank you for your continued partnership.
-                    </div>
-                    <div style="font-size: 12px; color: #64748b; line-height: 1.5;">
-                      We remain committed to delivering state-of-the-art enterprise logistics solutions.
-                    </div>
-                  </td>
-                </tr>
-              </table>
+            <td style="padding: 24px 32px 30px 32px; background-color: #ffffff; color: #334155;">
+              <div class="email-user-content" style="font-size: 14px; color: #334155; line-height: 1.6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                ${finalBodyContent}
+              </div>
             </td>
           </tr>
 

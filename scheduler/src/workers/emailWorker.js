@@ -1360,6 +1360,21 @@ const startEmailWorker = () => {
                   customerHtmlBody,
                   customerQueryData,
                 );
+
+                customerHtmlBody = buildCorporateEmailHtml({
+                  title:
+                    currentAction.display_name ||
+                    currentAction.subject ||
+                    customerQueryData.subtitle_query_0 ||
+                    "Shipment Status Report",
+                  subtitle: customerQueryData.subtitle_query_0 || "",
+                  bodyContent: customerHtmlBody,
+                  userBody: currentAction.body || currentAction.msg_body,
+                  queryData: customerQueryData,
+                  rows: group.rows || [],
+                  currentDateStr: dayjs().format("DD MMMM YYYY"),
+                  dbName: db,
+                });
               }
 
               const customerAttachments =
@@ -1499,7 +1514,8 @@ const startEmailWorker = () => {
                       currentAction.subject ||
                       queryData.subtitle_query_0 ||
                       "Shipment Status Report",
-                    subtitle: "Container movements at a glance",
+                    subtitle: queryData.subtitle_query_0 || "",
+                    bodyContent: allDataHtmlBody,
                     userBody: currentAction.body || currentAction.msg_body,
                     queryData,
                     tableHtml: tableSectionsHtml,
@@ -1672,7 +1688,8 @@ const startEmailWorker = () => {
                   currentAction.subject ||
                   queryData.subtitle_query_0 ||
                   "Shipment Status Report",
-                subtitle: "Container movements at a glance",
+                subtitle: queryData.subtitle_query_0 || "",
+                bodyContent: htmlBody,
                 userBody: currentAction.body || currentAction.msg_body,
                 queryData,
                 tableHtml: tableSectionsHtml,
