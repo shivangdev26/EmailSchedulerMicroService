@@ -123,7 +123,7 @@ const calculateKpiMetrics = (rows = []) => {
 
 const formatDatabaseDisplayName = (dbName) => {
   if (!dbName || typeof dbName !== "string") {
-    return "DCC LOGISTICS SUITE";
+    return "LOGISTICS SUITE";
   }
 
   let cleaned = dbName.trim();
@@ -133,7 +133,7 @@ const formatDatabaseDisplayName = (dbName) => {
   // Replace underscores and multiple dashes with spaces
   cleaned = cleaned.replace(/[_-]+/g, " ").trim().toUpperCase();
 
-  return cleaned ? `DCC ${cleaned}` : "DCC LOGISTICS SUITE";
+  return cleaned || "LOGISTICS SUITE";
 };
 
 const formatUserIntroHtml = ({
