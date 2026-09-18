@@ -884,6 +884,7 @@ const startEmailWorker = () => {
               queryData = await executeMultipleQueries({
                 token,
                 action: currentAction,
+                blApiUrl: currentAction.bl_api_url || action.bl_api_url,
               });
             } catch (err) {
               logger.error("Failed to execute queries for action", {

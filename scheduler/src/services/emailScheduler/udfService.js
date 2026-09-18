@@ -134,7 +134,8 @@ const executeMultipleQueries = async ({ token, action, blApiUrl }) => {
   if (!baseUrl) {
     throw new Error("UDF_QUERY_URL environment variable is not defined");
   }
-  const url = replaceApiUrlPrefix(baseUrl, blApiUrl);
+  const effectiveBlApiUrl = blApiUrl || action?.bl_api_url;
+  const url = replaceApiUrlPrefix(baseUrl, effectiveBlApiUrl);
 
   const queries = [];
   const subtitleQueries = [];
@@ -248,7 +249,8 @@ const formatCellValue = (val, keyName = "") => {
 
 const replaceQueryPlaceholders = (text, data) => {
   if (!text || !data) return text || "";
-  return text.replace(
+  const withDate = text.replace(/\{date\}/gi, dayjs().format("DD-MM-YYYY"));
+  return withDate.replace(
     /\{(query_result_\d+|subtitle_query_\d+|customer_summary|grouped_data|clean_data)\}/g,
     (match, key) => {
       const value = data[key];
