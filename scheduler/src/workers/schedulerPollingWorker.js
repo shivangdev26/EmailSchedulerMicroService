@@ -108,7 +108,7 @@ const fetchAllDatabases = async (retries = 3) => {
   logger.error("Error fetching databases after retries", {
     error: lastError?.message,
   });
-  return ["DCCBusinessSuite_mowara_test"];
+  return [];
 };
 
 //parser
@@ -494,28 +494,30 @@ const pollScheduler = async () => {
                     response.data.data.length > 0
                   ) {
                     actionData = {
-                      ...response.data.data[0],
                       ...action,
+                      ...response.data.data[0],
                       bl_api_url: blApiUrl,
+                      schedule_details:
+                        action.schedule_details ||
+                        response.data.data[0].schedule_details,
                       m_emailer_action_schedule:
                         response.data.data[0].m_emailer_action_schedule,
                     };
-                    // Explicitly ensure we preserve schedule_details from list action
-                    actionData.schedule_details = action.schedule_details;
                   } else if (
                     response.data?.tblData &&
                     Array.isArray(response.data.tblData) &&
                     response.data.tblData.length > 0
                   ) {
                     actionData = {
-                      ...response.data.tblData[0],
                       ...action,
+                      ...response.data.tblData[0],
                       bl_api_url: blApiUrl,
+                      schedule_details:
+                        action.schedule_details ||
+                        response.data.tblData[0].schedule_details,
                       m_emailer_action_schedule:
                         response.data.tblData[0].m_emailer_action_schedule,
                     };
-                    // Explicitly ensure we preserve schedule_details from list action
-                    actionData.schedule_details = action.schedule_details;
                   }
 
                   logger.info(
@@ -578,6 +580,7 @@ const pollScheduler = async () => {
       token: smtpToken,
       connection,
       dbName: allTenants.length > 0 ? allTenants[0].db : null,
+      blApiUrl: allTenants.length > 0 ? allTenants[0].blApiUrl : null,
     });
 
     if (!smtp?.email_address) {

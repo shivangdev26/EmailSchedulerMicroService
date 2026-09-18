@@ -569,16 +569,12 @@ const workerHealthCheck = async () => {
   if (
     !emailAlive ||
     !schedulerAlive ||
-    !alertAlive ||
-    !alertPollingAlive ||
     !pushAlive ||
     !workflowEmailAlive
   ) {
     logger.warn("One or more workers are dead — restarting...", {
       emailAlive,
       schedulerAlive,
-      alertAlive,
-      alertPollingAlive,
       pushAlive,
       workflowEmailAlive,
     });

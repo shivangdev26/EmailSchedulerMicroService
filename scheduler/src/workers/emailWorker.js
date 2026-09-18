@@ -892,6 +892,47 @@ const startEmailWorker = () => {
                 error: err.message,
               });
             }
+
+            // Logic: if there is no records found for executing query, don't send the email
+            const queryKeys = Object.keys(queryData).filter((k) =>
+              k.startsWith("query_result_"),
+            );
+            const totalRecordsFound = queryKeys.reduce((total, k) => {
+              return (
+                total + (Array.isArray(queryData[k]) ? queryData[k].length : 0)
+              );
+            }, 0);
+
+            const hasMainQuery = !!(currentAction.query && currentAction.query.trim());
+            const mainQueryRecords = Array.isArray(queryData.query_result_0)
+              ? queryData.query_result_0.length
+              : 0;
+
+            logger.info("Executed queries record count check", {
+              actionId: currentAction.id,
+              actionName: currentAction.display_name || currentAction.subject,
+              totalRecordsFound,
+              hasMainQuery,
+              mainQueryRecords,
+              queryBreakdown: queryKeys.reduce((acc, k) => {
+                acc[k] = Array.isArray(queryData[k]) ? queryData[k].length : 0;
+                return acc;
+              }, {}),
+            });
+
+            if (totalRecordsFound === 0 || (hasMainQuery && mainQueryRecords === 0)) {
+              logger.info(
+                "No records found for executing query (or main query returned 0 records). Skipping email sending.",
+                {
+                  actionId: currentAction.id,
+                  actionName: currentAction.display_name || currentAction.subject,
+                  database: db,
+                  totalRecordsFound,
+                  mainQueryRecords,
+                },
+              );
+              return;
+            }
           }
 
           let toEmails = normalizeRecipients(currentAction.to);
@@ -1175,11 +1216,12 @@ const startEmailWorker = () => {
               bccEmails.length > 0;
           }
 
-          let subject =
+          let subject = (
             currentAction.subject ||
             currentAction.display_name ||
             currentAction.title ||
-            "Scheduled Email";
+            "Scheduled Email"
+          ).replace(/\{(?:date|today)\}/gi, dayjs().format("DD-MM-YYYY"));
           let textBody =
             currentAction.body ||
             currentAction.msg_body ||
@@ -1458,6 +1500,8 @@ const startEmailWorker = () => {
                       queryData.subtitle_query_0 ||
                       "Shipment Status Report",
                     subtitle: "Container movements at a glance",
+                    userBody: currentAction.body || currentAction.msg_body,
+                    queryData,
                     tableHtml: tableSectionsHtml,
                     rows: rawRows,
                     currentDateStr: dayjs().format("DD MMMM YYYY"),
@@ -1615,6 +1659,13 @@ const startEmailWorker = () => {
                 );
               });
 
+              logger.info("=== Generating Corporate Email HTML ===", {
+                actionId: currentAction.id,
+                hasUserBody: !!(currentAction.body || currentAction.msg_body),
+                userBody: currentAction.body || currentAction.msg_body,
+                subtitle_query_0: queryData.subtitle_query_0,
+              });
+
               htmlBody = buildCorporateEmailHtml({
                 title:
                   currentAction.display_name ||
@@ -1622,6 +1673,8 @@ const startEmailWorker = () => {
                   queryData.subtitle_query_0 ||
                   "Shipment Status Report",
                 subtitle: "Container movements at a glance",
+                userBody: currentAction.body || currentAction.msg_body,
+                queryData,
                 tableHtml: tableSectionsHtml,
                 rows: rawRows,
                 currentDateStr: dayjs().format("DD MMMM YYYY"),

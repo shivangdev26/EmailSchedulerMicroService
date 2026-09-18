@@ -136,9 +136,132 @@ const formatDatabaseDisplayName = (dbName) => {
   return cleaned ? `DCC ${cleaned}` : "DCC LOGISTICS SUITE";
 };
 
+const formatUserIntroHtml = ({
+  userBody = "",
+  queryData = {},
+  subtitle = "",
+}) => {
+  let text = (userBody || "").trim();
+
+  if (text) {
+    // 1. Remove enclosing block tags like <p>{query_result_0}</p>, <div>{query_result_0}</div>, <h2>{query_result_0}</h2> etc.
+    text = text.replace(
+      /<(?:p|div|h[1-6]|span)[^>]*>\s*\{(?:query_result_\d+|clean_data|grouped_data|customer_summary)\}\s*<\/(?:p|div|h[1-6]|span)>/gi,
+      "",
+    );
+
+    // 2. Remove standalone table placeholders
+    text = text.replace(
+      /\{(?:query_result_\d+|clean_data|grouped_data|customer_summary)\}/gi,
+      "",
+    );
+
+    // 3. Resolve query subtitle placeholders like {subtitle_query_0}, {subtitle_query_1}, etc.
+    text = text.replace(/\{(subtitle_query_\d+)\}/gi, (match, key) => {
+      if (
+        queryData &&
+        queryData[key] !== undefined &&
+        queryData[key] !== null
+      ) {
+        return String(queryData[key]);
+      }
+      return "";
+    });
+
+    // 4. Also resolve any other string/number keys present in queryData
+    if (queryData && typeof queryData === "object") {
+      Object.keys(queryData).forEach((k) => {
+        if (
+          typeof queryData[k] === "string" ||
+          typeof queryData[k] === "number"
+        ) {
+          text = text.replace(
+            new RegExp(`\\{${k}\\}`, "g"),
+            String(queryData[k]),
+          );
+        }
+      });
+    }
+
+    // 5. Resolve {date} with today's date (DD-MM-YYYY)
+    text = text.replace(/\{(?:date|today)\}/gi, dayjs().format("DD-MM-YYYY"));
+
+    // 6. Replace empty header linebreaks like <h2><br></h2> with a neat spacing
+    text = text.replace(
+      /<h[1-6][^>]*>\s*(?:<br\s*\/?>|&nbsp;|\s*)*<\/h[1-6]>/gi,
+      '<div style="height: 6px;"></div>',
+    );
+
+    // 7. Clean up empty <p><br></p> or trailing whitespace/breaks at the end
+    text = text
+      .replace(
+        /(?:<p[^>]*>\s*(?:<br\s*\/?>|&nbsp;|\s*)*<\/p>|<div style="height: 6px;"><\/div>|<br\s*\/?>|\s)+$/gi,
+        "",
+      )
+      .trim();
+
+    // 8. Clean up empty <p><br></p> at the beginning
+    text = text
+      .replace(
+        /^(?:<p[^>]*>\s*(?:<br\s*\/?>|&nbsp;|\s*)*<\/p>|<div style="height: 6px;"><\/div>|<br\s*\/?>|\s)+/gi,
+        "",
+      )
+      .trim();
+  }
+
+  const plainText = text.replace(/<[^>]*>/g, "").trim();
+
+  if (plainText) {
+    const hasHtmlTags = /<[a-z][\s\S]*>/i.test(text);
+    if (!hasHtmlTags) {
+      text = text.replace(/\r?\n/g, "<br>");
+    } else {
+      text = text.replace(
+        /<h2(?![^>]*style=)/gi,
+        '<h2 style="margin: 0 0 6px 0; font-size: 16px; font-weight: 700; color: #0f172a; line-height: 1.3;"',
+      );
+      text = text.replace(
+        /<h3(?![^>]*style=)/gi,
+        '<h3 style="margin: 0 0 6px 0; font-size: 15px; font-weight: 600; color: #0f172a; line-height: 1.3;"',
+      );
+      text = text.replace(
+        /<h4(?![^>]*style=)/gi,
+        '<h4 style="margin: 0 0 6px 0; font-size: 14px; font-weight: 600; color: #0f172a; line-height: 1.3;"',
+      );
+      text = text.replace(
+        /<p(?![^>]*style=)/gi,
+        '<p style="margin: 0 0 6px 0; font-size: 13px; color: #475569; line-height: 1.5;"',
+      );
+    }
+    return text;
+  }
+
+  // Fallback to subtitle_query_0 if userBody was not provided or had only table placeholders
+  if (queryData && queryData.subtitle_query_0) {
+    const cleanSub = String(queryData.subtitle_query_0).replace(
+      /\{(?:date|today)\}/gi,
+      dayjs().format("DD-MM-YYYY"),
+    );
+    return `<div style="font-size: 15px; font-weight: 700; color: #0f172a; line-height: 1.4;">${cleanSub}</div>`;
+  }
+
+  if (subtitle && subtitle !== "Container movements at a glance") {
+    const cleanSub = String(subtitle).replace(
+      /\{(?:date|today)\}/gi,
+      dayjs().format("DD-MM-YYYY"),
+    );
+    return `<div style="font-size: 14px; color: #475569; line-height: 1.5;">${cleanSub}</div>`;
+  }
+
+  return null;
+};
+
 const buildCorporateEmailHtml = ({
   title = "Shipment Status Report",
   subtitle = "Container movements at a glance",
+  introHtml = "",
+  userBody = "",
+  queryData = {},
   tableHtml = "",
   rows = [],
   currentDateStr = dayjs().format("DD MMMM YYYY"),
@@ -148,8 +271,12 @@ const buildCorporateEmailHtml = ({
   const brandName = formatDatabaseDisplayName(dbName);
 
   const displayTitle = title
+    .replace(/\{(?:date|today)\}/gi, dayjs().format("DD-MM-YYYY"))
     .replace(/_/g, " ")
     .replace(/\b([a-z])/g, (c) => c.toUpperCase());
+
+  const resolvedIntro =
+    introHtml || formatUserIntroHtml({ userBody, queryData, subtitle });
 
   return `
 <!DOCTYPE html>
@@ -163,6 +290,32 @@ const buildCorporateEmailHtml = ({
       -webkit-text-size-adjust: 100%;
       -ms-text-size-adjust: 100%;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+    .email-user-intro h1, .email-user-intro h2, .email-user-intro h3, .email-user-intro h4 {
+      margin-top: 0;
+      margin-bottom: 8px;
+      color: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+    .email-user-intro h2 {
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+    .email-user-intro h3 {
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    .email-user-intro h4 {
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    .email-user-intro p {
+      margin: 0 0 8px 0;
+      line-height: 1.5;
+      color: #475569;
     }
   </style>
 </head>
@@ -209,7 +362,7 @@ const buildCorporateEmailHtml = ({
                       ${displayTitle}
                     </div>
                     <div style="font-size: 13px; color: #cbd5e1; font-weight: 500; margin-top: 6px;">
-                      ${brandName} &nbsp;|&nbsp; Enterprise Logistics Operations
+                      DCC NG &nbsp;|&nbsp; Enterprise Logistics Operations
                     </div>
                     <!-- Accent Line -->
                     <div style="width: 44px; height: 3px; background-color: #3b82f6; border-radius: 2px; margin: 16px 0 20px 0;"></div>
@@ -233,13 +386,19 @@ const buildCorporateEmailHtml = ({
 
           <!-- 3. Greeting & Intro Card -->
           <tr>
-            <td style="padding: 28px 32px 14px 32px; background-color: #ffffff;">
+            <td style="padding: 24px 32px 14px 32px; background-color: #ffffff; color: #334155;">
+              ${
+                resolvedIntro
+                  ? `<div class="email-user-intro" style="font-size: 14px; color: #334155; line-height: 1.6;">${resolvedIntro}</div>`
+                  : `
               <div style="font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 6px;">
                 Hello Valued Customer,
               </div>
               <div style="font-size: 13px; color: #475569; line-height: 1.6;">
                 Please find below the latest <strong>${displayTitle}</strong> generated from <strong>${brandName}</strong>. This report provides an overview of operations, tracking details and status alerts.
               </div>
+                  `
+              }
             </td>
           </tr>
 
@@ -353,81 +512,23 @@ const buildCorporateEmailHtml = ({
             </td>
           </tr>
 
-
-
-          <!-- 7. Partnership & Contact Card -->
+          <!-- 6. Partnership Note -->
           <tr>
-            <td style="padding: 24px 32px; background-color: #f8fafc; border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0;">
-              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+            <td style="padding: 20px 32px 24px 32px; background-color: #f8fafc; border-top: 1px solid #e2e8f0; border-radius: 0 0 12px 12px;">
+              <table cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <!-- Partnership Note (Left) -->
-                  <td width="55%" style="vertical-align: top; padding-right: 24px;">
-                    <table cellpadding="0" cellspacing="0" border="0">
-                      <tr>
-                        <td style="vertical-align: top; padding-right: 12px;">
-                          <div style="width: 36px; height: 36px; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 50%; text-align: center; line-height: 36px; font-size: 18px;">
-                            🤝
-                          </div>
-                        </td>
-                        <td style="vertical-align: top;">
-                          <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 4px;">
-                            Thank you for your continued partnership.
-                          </div>
-                          <div style="font-size: 12px; color: #64748b; line-height: 1.5; margin-bottom: 12px;">
-                            We remain committed to delivering state-of-the-art enterprise logistics solutions.
-                          </div>
-                          <div style="font-size: 11px; color: #475569; line-height: 1.4;">
-                            Best regards,<br>
-                            <strong>${brandName} Support</strong><br>
-                            <strong>DCC SAP Business One Operations</strong>
-                          </div>
-                        </td>
-                      </tr>
-                    </table>
+                  <td style="vertical-align: top; padding-right: 12px;">
+                    <div style="width: 36px; height: 36px; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 50%; text-align: center; line-height: 36px; font-size: 18px;">
+                      🤝
+                    </div>
                   </td>
-
-                  <!-- Contact Details (Right) -->
-                  <td width="45%" style="vertical-align: top; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px;">
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                      <tr>
-                        <td style="padding-bottom: 6px; font-size: 11px; color: #334155;">
-                          📞 &nbsp; <strong>+255 759 112 161</strong>
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding-bottom: 6px; font-size: 11px; color: #334155;">
-                          ✉️ &nbsp; <a href="mailto:support@doubleclick.co.tz" style="color: #2563eb; text-decoration: none;">support@doubleclick.co.tz</a>
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding-bottom: 6px; font-size: 11px; color: #334155;">
-                          🌐 &nbsp; <a href="https://www.doubleclick.co.tz" style="color: #2563eb; text-decoration: none;">www.doubleclick.co.tz</a>
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="font-size: 11px; color: #64748b;">
-                          📍 &nbsp; Dar es Salaam, Tanzania
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- 8. Footer: Brand Text & Tagline -->
-          <tr>
-            <td style="padding: 20px 32px; background-color: #ffffff;">
-              <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                  <td align="left" style="vertical-align: middle;">
-                    <span style="font-size: 14px; font-weight: 900; color: #0f172a; letter-spacing: -0.3px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-                      ${brandName}
-                    </span>
-                  </td>
-                  <td align="right" style="vertical-align: middle; font-size: 10px; color: #94a3b8; font-weight: 700; letter-spacing: 1px;">
-                    ENTERPRISE LOGISTICS SUITE &nbsp;|&nbsp; AUTOMATE &nbsp;|&nbsp; SCALE
+                  <td style="vertical-align: middle;">
+                    <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 2px;">
+                      Thank you for your continued partnership.
+                    </div>
+                    <div style="font-size: 12px; color: #64748b; line-height: 1.5;">
+                      We remain committed to delivering state-of-the-art enterprise logistics solutions.
+                    </div>
                   </td>
                 </tr>
               </table>
@@ -447,5 +548,6 @@ const buildCorporateEmailHtml = ({
 module.exports = {
   calculateKpiMetrics,
   formatDatabaseDisplayName,
+  formatUserIntroHtml,
   buildCorporateEmailHtml,
 };

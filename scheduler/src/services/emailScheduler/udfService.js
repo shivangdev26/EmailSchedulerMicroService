@@ -201,7 +201,9 @@ const executeMultipleQueries = async ({ token, action, blApiUrl }) => {
 
   const subtitleResults = {};
   for (const { index, text } of subtitleQueries) {
-    subtitleResults[`subtitle_query_${index}`] = text;
+    subtitleResults[`subtitle_query_${index}`] = text
+      ? text.replace(/\{(?:date|today)\}/gi, dayjs().format("DD-MM-YYYY"))
+      : text;
   }
 
   return {
@@ -249,8 +251,7 @@ const formatCellValue = (val, keyName = "") => {
 
 const replaceQueryPlaceholders = (text, data) => {
   if (!text || !data) return text || "";
-  const withDate = text.replace(/\{date\}/gi, dayjs().format("DD-MM-YYYY"));
-  return withDate.replace(
+  let result = text.replace(
     /\{(query_result_\d+|subtitle_query_\d+|customer_summary|grouped_data|clean_data)\}/g,
     (match, key) => {
       const value = data[key];
@@ -302,6 +303,7 @@ const replaceQueryPlaceholders = (text, data) => {
       return String(value);
     },
   );
+  return result.replace(/\{(?:date|today)\}/gi, dayjs().format("DD-MM-YYYY"));
 };
 
 //new change
