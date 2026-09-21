@@ -28,6 +28,7 @@ const {
 const {
   generateExcelBuffer,
   generatePdfBuffer,
+  processSmartAttachments,
 } = require("../services/emailScheduler/attachmentService");
 const { buildCorporateEmailHtml } = require("../services/emailTemplateService");
 const {
@@ -647,7 +648,6 @@ const startEmailWorker = () => {
           //   }
           // }
 
-          // First use latest schedule object from API
           if (
             currentAction.m_emailer_action_schedule &&
             currentAction.m_emailer_action_schedule.length > 0
@@ -903,7 +903,9 @@ const startEmailWorker = () => {
               );
             }, 0);
 
-            const hasMainQuery = !!(currentAction.query && currentAction.query.trim());
+            const hasMainQuery = !!(
+              currentAction.query && currentAction.query.trim()
+            );
             const mainQueryRecords = Array.isArray(queryData.query_result_0)
               ? queryData.query_result_0.length
               : 0;
@@ -920,12 +922,16 @@ const startEmailWorker = () => {
               }, {}),
             });
 
-            if (totalRecordsFound === 0 || (hasMainQuery && mainQueryRecords === 0)) {
+            if (
+              totalRecordsFound === 0 ||
+              (hasMainQuery && mainQueryRecords === 0)
+            ) {
               logger.info(
                 "No records found for executing query (or main query returned 0 records). Skipping email sending.",
                 {
                   actionId: currentAction.id,
-                  actionName: currentAction.display_name || currentAction.subject,
+                  actionName:
+                    currentAction.display_name || currentAction.subject,
                   database: db,
                   totalRecordsFound,
                   mainQueryRecords,
@@ -2311,6 +2317,7 @@ const startEmailWorker = () => {
                 encoding: "base64",
                 contentType:
                   pdfResponse.headers["content-type"] || "application/pdf",
+                sizeBytes: pdfResponse.data.length,
               });
 
               console.log(
@@ -2616,6 +2623,8 @@ const startEmailWorker = () => {
                     encoding: "base64",
                     contentType:
                       fileResp.headers["content-type"] || "application/pdf",
+                    cdn_url: cdn_url,
+                    sizeBytes: fileResp.data.length,
                   });
                 }
               }
@@ -2676,6 +2685,8 @@ const startEmailWorker = () => {
                     contentType:
                       fileResp.headers["content-type"] ||
                       "application/octet-stream",
+                    cdn_url: cdn_url,
+                    sizeBytes: fileResp.data.length,
                   });
                   console.log("Added attachment:", finalName);
                 } catch (dlErr) {
@@ -2714,6 +2725,30 @@ const startEmailWorker = () => {
             config.msg_body = config.msg_body
               .replace(/{{confirm_link}}/g, domainData.url)
               .replace(/{{not_confirm_link}}/g, domainData.url);
+          }
+
+          if (attachments.length > 0) {
+            const processed = await processSmartAttachments({
+              attachments,
+              entityId: EntityId,
+              currentBody: config.msg_body,
+            });
+            attachments = processed.attachments;
+            config.msg_body = processed.updatedBody;
+
+            triggerLogger.info("Smart attachment processing result", {
+              jobId: job.id,
+              event_name: effectiveEventName,
+              EntityId,
+              mode: processed.mode,
+              finalAttachmentCount: attachments.length,
+              rawSizeBytes: processed.rawSize,
+              zipSizeBytes: processed.zipSize,
+              filesWithCdnCount: processed.filesWithCdnCount,
+            });
+            console.log(
+              `Smart Attachments: ${processed.mode}, Attachments: ${attachments.length}, Raw size: ${processed.rawSize || 0} bytes`,
+            );
           }
 
           const emailPayload = buildEmailPayloadFromConfig(

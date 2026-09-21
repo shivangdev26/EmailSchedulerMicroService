@@ -2,13 +2,6 @@ const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
 const { Readable } = require("stream");
 
-/**
- * Generates an Excel buffer from query results
- * @param {Array|Object} queryResults - Single query data array or rawResults object with multiple queries
- * @param {string} filename - Name of the file (without extension)
- * @param {string} worksheetType - "S" for single sheet, "M" for multiple sheets
- * @returns {Promise<{buffer: Buffer, filename: string}>}
- */
 const generateExcelBuffer = async (
   queryResults,
   filename = "report",
@@ -166,12 +159,6 @@ const generateExcelBuffer = async (
   };
 };
 
-/**
- * Generates a PDF buffer from query results
- * @param {Array} queryResults - Array of query result data
- * @param {string} filename - Name of the file (without extension)
- * @returns {Promise<{buffer: Buffer, filename: string}>}
- */
 const generatePdfBuffer = (queryResults, filename = "report") => {
   return new Promise((resolve, reject) => {
     const buffers = [];
@@ -259,13 +246,20 @@ const generatePdfBuffer = (queryResults, filename = "report") => {
 
         headers.forEach((header, colIndex) => {
           const width = colWidths[colIndex];
-          doc.rect(currentX, y, width, headerRowHeight).fillAndStroke("#3b82f6", "black");
+          doc
+            .rect(currentX, y, width, headerRowHeight)
+            .fillAndStroke("#3b82f6", "black");
           doc.fillColor("white");
-          doc.text(header.toUpperCase(), currentX + cellPadding, y + cellPadding, {
-            width: width - cellPadding * 2,
-            align: "left",
-            baseline: "top",
-          });
+          doc.text(
+            header.toUpperCase(),
+            currentX + cellPadding,
+            y + cellPadding,
+            {
+              width: width - cellPadding * 2,
+              align: "left",
+              baseline: "top",
+            },
+          );
           doc.fillColor("black");
           currentX += width;
         });
@@ -296,7 +290,9 @@ const generatePdfBuffer = (queryResults, filename = "report") => {
               ? String(row[header])
               : "";
 
-          doc.rect(currentX, y, width, maxRowHeight).fillAndStroke(rowBg, "black");
+          doc
+            .rect(currentX, y, width, maxRowHeight)
+            .fillAndStroke(rowBg, "black");
           doc.fillColor("black");
           doc.text(value, currentX + cellPadding, y + cellPadding, {
             width: width - cellPadding * 2,
@@ -341,7 +337,166 @@ const generatePdfBuffer = (queryResults, filename = "report") => {
   });
 };
 
+const archiver = require("archiver");
+
+const createZipBuffer = (files) => {
+  return new Promise((resolve, reject) => {
+    const archive = archiver("zip", { zlib: { level: 9 } });
+    const chunks = [];
+
+    archive.on("data", (chunk) => chunks.push(chunk));
+    archive.on("end", () => resolve(Buffer.concat(chunks)));
+    archive.on("error", (err) => reject(err));
+
+    for (const file of files) {
+      if (!file || !file.filename) continue;
+      let buf;
+      if (Buffer.isBuffer(file.content)) {
+        buf = file.content;
+      } else if (typeof file.content === "string") {
+        const enc = file.encoding === "base64" ? "base64" : "utf-8";
+        buf = Buffer.from(file.content, enc);
+      } else {
+        continue;
+      }
+      archive.append(buf, { name: file.filename });
+    }
+
+    archive.finalize();
+  });
+};
+
+const formatCdnLinksHtml = (filesWithCdn) => {
+  if (!filesWithCdn || !filesWithCdn.length) return "";
+  const listItems = filesWithCdn
+    .map(
+      (f) =>
+        `<li style="margin-bottom: 8px;">` +
+        `<a href="${f.cdn_url}" style="color: #2563eb; text-decoration: underline; font-weight: 500;" target="_blank" rel="noopener noreferrer">${f.filename || "Attachment"}</a>` +
+        `</li>`,
+    )
+    .join("");
+
+  return (
+    `<div style="margin-top: 24px; padding: 16px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-family: Arial, sans-serif;">` +
+    `<p style="margin: 0 0 12px 0; font-weight: bold; color: #1e293b; font-size: 14px;">📎 Attachments (Download via direct link):</p>` +
+    `<ul style="margin: 0; padding-left: 20px; color: #334155; font-size: 13px;">${listItems}</ul>` +
+    `<p style="margin: 12px 0 0 0; font-size: 11px; color: #64748b;">Note: To ensure fast and reliable email delivery, these files are provided as secure download links.</p>` +
+    `</div>`
+  );
+};
+
+const formatCdnLinksText = (filesWithCdn) => {
+  if (!filesWithCdn || !filesWithCdn.length) return "";
+  const lines = filesWithCdn
+    .map((f) => `- ${f.filename}: ${f.cdn_url}`)
+    .join("\n");
+  return `\n\nAttachments (Download Links):\n${lines}\n(Note: Files provided via secure download links due to message size limits)\n`;
+};
+
+const processSmartAttachments = async ({
+  attachments = [],
+  entityId = "",
+  currentBody = "",
+  maxCount = 6,
+  maxRawBytes = 15 * 1024 * 1024,
+  maxZipBytes = 15 * 1024 * 1024,
+}) => {
+  if (!Array.isArray(attachments) || attachments.length === 0) {
+    return { attachments: [], updatedBody: currentBody, mode: "DIRECT" };
+  }
+
+  let totalRawBytes = 0;
+  for (const att of attachments) {
+    if (att.sizeBytes && typeof att.sizeBytes === "number") {
+      totalRawBytes += att.sizeBytes;
+    } else if (Buffer.isBuffer(att.content)) {
+      totalRawBytes += att.content.length;
+    } else if (typeof att.content === "string") {
+      const enc = att.encoding === "base64" ? "base64" : "utf-8";
+      totalRawBytes += Buffer.byteLength(att.content, enc);
+    }
+  }
+
+  const shouldCompress =
+    attachments.length > maxCount || totalRawBytes > maxRawBytes;
+
+  if (!shouldCompress) {
+    return {
+      attachments,
+      updatedBody: currentBody,
+      mode: "DIRECT",
+      rawSize: totalRawBytes,
+    };
+  }
+
+  try {
+    const zipBuffer = await createZipBuffer(attachments);
+    const zipSize = zipBuffer.length;
+
+    if (zipSize <= maxZipBytes) {
+      const zipFilename = `Attachments_${entityId || "Bundle"}.zip`;
+      return {
+        attachments: [
+          {
+            filename: zipFilename,
+            content: zipBuffer.toString("base64"),
+            encoding: "base64",
+            contentType: "application/zip",
+            sizeBytes: zipSize,
+          },
+        ],
+        updatedBody: currentBody,
+        mode: "ZIP",
+        rawSize: totalRawBytes,
+        zipSize,
+      };
+    }
+  } catch (zipErr) {}
+
+  const filesWithCdn = attachments.filter((a) => a.cdn_url);
+  const filesWithoutCdn = attachments.filter((a) => !a.cdn_url);
+
+  let updatedBody = currentBody || "";
+  if (filesWithCdn.length > 0) {
+    const isHtml =
+      /<[a-z][\s\S]*>/i.test(updatedBody) ||
+      updatedBody.includes("<div") ||
+      updatedBody.includes("<p");
+    if (isHtml) {
+      updatedBody += formatCdnLinksHtml(filesWithCdn);
+    } else {
+      updatedBody += formatCdnLinksText(filesWithCdn);
+    }
+  }
+
+  let remainingAttachments = [];
+  const filesWithoutCdnSize = filesWithoutCdn.reduce((sum, f) => {
+    return (
+      sum +
+      (f.sizeBytes ||
+        (f.content ? Buffer.byteLength(f.content, f.encoding || "base64") : 0))
+    );
+  }, 0);
+
+  if (filesWithoutCdn.length > 0 && filesWithoutCdnSize < 5 * 1024 * 1024) {
+    remainingAttachments = filesWithoutCdn;
+  }
+
+  return {
+    attachments: remainingAttachments,
+    updatedBody,
+    mode: "CDN_LINKS",
+    rawSize: totalRawBytes,
+    filesWithCdnCount: filesWithCdn.length,
+  };
+};
+
 module.exports = {
   generateExcelBuffer,
   generatePdfBuffer,
+  createZipBuffer,
+  formatCdnLinksHtml,
+  formatCdnLinksText,
+  processSmartAttachments,
 };
