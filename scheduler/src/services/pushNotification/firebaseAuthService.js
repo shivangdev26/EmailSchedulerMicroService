@@ -129,9 +129,9 @@ const sendDirectFcmV1 = async ({
     const projectId = sa.project_id;
     const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
 
-    const clickUrl = portalUrl
-      ? `${portalUrl.replace(/\/+$/, "")}/#/approval`
-      : "https://mowara_1.dcclogsuite.com/ng/1.1/#/approval";
+    const portalBase = portalUrl ? portalUrl.replace(/\/+$/, "") : "https://mowara_1.dcclogsuite.com/ng/1.1";
+    const clickUrl = `${portalBase}/#/approval`;
+    const iconUrl = `${portalBase}/assets/images/logo-sm-t.png`;
 
     const message = {
       token: deviceToken,
@@ -160,8 +160,8 @@ const sendDirectFcmV1 = async ({
         notification: {
           title: title || "",
           body: body || "",
-          icon: "/assets/images/logo-sm-t.png",
-          badge: "/assets/images/logo-sm-t.png",
+          icon: iconUrl,
+          badge: iconUrl,
           requireInteraction: true,
         },
         fcm_options: {
