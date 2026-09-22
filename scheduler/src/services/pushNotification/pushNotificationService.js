@@ -70,16 +70,31 @@ const fetchPendingPushNotifications = async ({
         t0.severity, 
         t0.parent_source, 
         t0.parent_id, 
-        ISNULL(t3.id, 0) as request_detail_id, 
+        ISNULL(t3.id, ISNULL(t0.request_detail_id, 0)) as request_detail_id, 
         ISNULL(t2.action_id, 0) as action_id, 
         ISNULL(t2.action_name, t0.action_name) as action_name,
+        ISNULL(t3.stepnumber, t0.sequence_stage) as stepnumber,
         CASE WHEN t0.parent_source = 0 THEN ISNULL(t_setup.alert_query, '') ELSE '' END as alert_query
       FROM m_notifications t0 WITH(NOLOCK)
       INNER JOIN m_user_master USR WITH(NOLOCK) ON t0.notifier_id = USR.id
       INNER JOIN m_notification_status t1 WITH(NOLOCK) ON t0.id = t1.parent_id AND t1.notification_type in (1) AND t1.msgstatus = 0 AND ISNULL(t0.is_deleted, 'N') = 'N'
       LEFT JOIN m_notifications_setup t_setup WITH(NOLOCK) ON t_setup.id = t0.parent_id AND t0.parent_source = 0
       LEFT JOIN m_approval_request t2 WITH(NOLOCK) ON t0.parent_id = t2.id AND t0.parent_source = 2
-      LEFT JOIN m_approval_request_details t3 WITH(NOLOCK) ON t2.id = t3.parent_id AND t0.notifier_id = t3.approver_user_id AND t0.parent_source = 2
+      LEFT JOIN m_approval_request_details t3 WITH(NOLOCK) ON (t0.request_detail_id = t3.id OR (t2.id = t3.parent_id AND t0.notifier_id = t3.approver_user_id)) AND t0.parent_source = 2
+      WHERE (
+        t0.parent_source != 2 
+        OR (
+          ISNULL(t2.request_status, 'P') = 'P'
+          AND ISNULL(t3.request_status, 'P') = 'P'
+          AND NOT EXISTS (
+            SELECT 1 
+            FROM m_approval_request_details prev WITH(NOLOCK)
+            WHERE prev.parent_id = t2.id 
+              AND prev.stepnumber < ISNULL(t3.stepnumber, t0.sequence_stage)
+              AND prev.request_status != 'A'
+          )
+        )
+      )
     `;
 
     const data = await executeUdfQuery({
@@ -109,9 +124,9 @@ const { sendDirectFcmV1, getServiceAccount } = require("./firebaseAuthService");
 
 const dispatchFcmNotification = async (payload, maxRetries = 3) => {
   const useDirect =
-    process.env.USE_DIRECT_FCM === "true" ||
-    process.env.FCM_DISPATCH_MODE === "direct" ||
-    (!process.env.FCM_GATEWAY_URL && !!getServiceAccount());
+    process.env.USE_DIRECT_FCM !== "false" &&
+    process.env.FCM_DISPATCH_MODE !== "gateway" &&
+    !!getServiceAccount();
 
   if (useDirect) {
     try {
@@ -121,9 +136,16 @@ const dispatchFcmNotification = async (payload, maxRetries = 3) => {
         body: payload.body,
         screen: payload.data?.screen,
         dataPayload: payload.data?.data,
+        portalUrl: payload.portalUrl,
       });
 
-      return directResult;
+      if (directResult && directResult.success) {
+        return directResult;
+      }
+
+      logger.warn("Direct FCM v1 failed, falling back to gateway...", {
+        error: directResult?.error,
+      });
     } catch (directErr) {
       logger.error("Direct FCM v1 failed, checking gateway fallback...", {
         error: directErr.message,
@@ -577,6 +599,8 @@ const dispatchNotificationEmail = async ({
   msgtext,
   actionName,
   tableRows,
+  dbName = "",
+  portalUrl = "",
 }) => {
   try {
     if (!notificationId) return;
@@ -660,7 +684,6 @@ const dispatchNotificationEmail = async ({
       return;
     }
 
-    // 2. If it's an approval request, attempt to fetch document details
     let docRecord = null;
     if (notif?.app_table_name && notif?.app_action_id) {
       try {
@@ -687,12 +710,15 @@ const dispatchNotificationEmail = async ({
       const {
         fetchSmtpConfig,
       } = require("../emailScheduler/emailerSmtpAccountService");
-      smtp = await fetchSmtpConfig({ token, blApiUrl });
+      smtp = await fetchSmtpConfig({ token, blApiUrl, dbName });
     } catch (e) {}
 
+    const defaultFrom =
+      process.env.DEFAULT_FROM_EMAIL ||
+      process.env.DEFAULT_EMAIL_FROM ||
+      "enotifications@mowara.co.tz";
     const server = smtp?.server_name || smtp?.server || "in-v3.mailjet.com";
-    const fromEmail =
-      smtp?.email_address || smtp?.email || "enotifications@mowara.co.tz";
+    const fromEmail = smtp?.email_address || smtp?.email || defaultFrom;
     const username = smtp?.user_name || smtp?.email_address || "";
     const password = smtp?.password || "";
     const port = smtp?.port_number || smtp?.port || 587;
@@ -707,12 +733,14 @@ const dispatchNotificationEmail = async ({
       } catch (_) {}
     }
 
-    let portalUrl = "";
-    try {
-      const { fetchDomainData } = require("../common/urlService");
-      const domainData = await fetchDomainData("DCCBusinessSuite_mowara_test");
-      portalUrl = domainData?.url || "";
-    } catch (_) {}
+    let resolvedPortalUrl = portalUrl;
+    if (!resolvedPortalUrl && dbName) {
+      try {
+        const { fetchDomainData } = require("../common/urlService");
+        const domainData = await fetchDomainData(dbName);
+        resolvedPortalUrl = domainData?.url || "";
+      } catch (_) {}
+    }
 
     const isApproval = Number(notif?.parent_source) === 2;
     let emailSubject = "";
@@ -755,7 +783,7 @@ const dispatchNotificationEmail = async ({
         costCenter,
         empName,
         requestDate: reqDate,
-        portalUrl,
+        portalUrl: resolvedPortalUrl,
         tableHtml,
       });
     } else {
@@ -766,7 +794,7 @@ const dispatchNotificationEmail = async ({
         actionName: actionName || notif?.action_name,
         notificationId,
         tableHtml,
-        portalUrl,
+        portalUrl: resolvedPortalUrl,
       });
     }
 
@@ -833,7 +861,13 @@ const dispatchNotificationEmail = async ({
   }
 };
 
-const processSinglePushNotification = async ({ item, token, blApiUrl }) => {
+const processSinglePushNotification = async ({
+  item,
+  token,
+  blApiUrl,
+  dbName = "",
+  portalUrl = "",
+}) => {
   const notificationId = Number(item.notificationId || item.id || 0);
   const title = String(item.title || "");
   const msgtext = String(item.msgtext || item.message || "");
@@ -894,6 +928,27 @@ const processSinglePushNotification = async ({ item, token, blApiUrl }) => {
       }
     } else if (parentSource === 2) {
       notificationType = "approval";
+      if (parentId > 0) {
+        const currentStep = Number(item.stepnumber || item.sequence_stage || 1);
+        const pendingPrior = await executeUdfQuery({
+          token,
+          query: `SELECT COUNT(1) as cnt FROM m_approval_request_details WITH(NOLOCK) WHERE parent_id = ${parentId} AND stepnumber < ${currentStep} AND request_status != 'A'`,
+          blApiUrl,
+        });
+        const pendingCount = Number(pendingPrior?.[0]?.cnt || 0);
+        if (pendingCount > 0) {
+          logger.warn(
+            `Skipping approval notification ${notificationId} (stage ${currentStep}) because previous stages are still pending approval`,
+            {
+              notificationId,
+              parentId,
+              currentStep,
+              pendingPriorCount: pendingCount,
+            },
+          );
+          return { success: false, alertId: null };
+        }
+      }
     }
 
     let pushResult = { success: false, messageId: "" };
@@ -918,6 +973,7 @@ const processSinglePushNotification = async ({ item, token, blApiUrl }) => {
         sound: "custom_sound",
         content_available: true,
         mutable_content: true,
+        portalUrl,
         data: {
           screen:
             notificationType === "approval"
@@ -946,7 +1002,6 @@ const processSinglePushNotification = async ({ item, token, blApiUrl }) => {
       );
     }
 
-    // Always dispatch email notification to user inbox
     let emailSuccess = false;
     try {
       let parsedRows = [];
@@ -963,6 +1018,8 @@ const processSinglePushNotification = async ({ item, token, blApiUrl }) => {
         msgtext,
         actionName,
         tableRows: parsedRows,
+        dbName,
+        portalUrl,
       });
       emailSuccess = true;
     } catch (emailErr) {

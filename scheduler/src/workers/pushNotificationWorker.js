@@ -100,7 +100,13 @@ const pollPushNotifications = async () => {
 
           const settledResults = await Promise.allSettled(
             chunk.map((item) =>
-              processSinglePushNotification({ item, token, blApiUrl }),
+              processSinglePushNotification({
+                item,
+                token,
+                blApiUrl,
+                dbName: db,
+                portalUrl: domainData?.url,
+              }),
             ),
           );
 

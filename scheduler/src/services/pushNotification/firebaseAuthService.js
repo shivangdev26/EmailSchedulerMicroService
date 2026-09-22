@@ -111,16 +111,27 @@ const sendDirectFcmV1 = async ({
   body,
   screen,
   dataPayload,
+  portalUrl = "",
 }) => {
   try {
+    if (!deviceToken) {
+      throw new Error("No deviceToken provided for direct FCM v1");
+    }
+
     const sa = getServiceAccount();
     if (!sa) {
-      throw new Error("Firebase Service Account configuration is missing");
+      throw new Error(
+        "No Firebase service account found. Please check firebase-service-account.json or env variables.",
+      );
     }
 
     const accessToken = await getFirebaseAccessToken();
     const projectId = sa.project_id;
     const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
+
+    const clickUrl = portalUrl
+      ? `${portalUrl.replace(/\/+$/, "")}/#/approval`
+      : "https://mowara_1.dcclogsuite.com/ng/1.1/#/approval";
 
     const message = {
       token: deviceToken,
@@ -140,6 +151,21 @@ const sendDirectFcmV1 = async ({
         notification: {
           channel_id: "high_importance_channel",
           sound: "custom_sound",
+        },
+      },
+      webpush: {
+        headers: {
+          Urgency: "high",
+        },
+        notification: {
+          title: title || "",
+          body: body || "",
+          icon: "/assets/images/logo-sm-t.png",
+          badge: "/assets/images/logo-sm-t.png",
+          requireInteraction: true,
+        },
+        fcm_options: {
+          link: clickUrl,
         },
       },
       apns: {
