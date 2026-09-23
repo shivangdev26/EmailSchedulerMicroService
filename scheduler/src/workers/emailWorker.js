@@ -396,7 +396,7 @@ const buildEmailPayloadFromConfig = (config, smtp, attachments = []) => {
       port,
     },
     from,
-    to: normalizeRecipients(config.recipients),
+    to: normalizeRecipients(config.to || config.recipients),
     cc: normalizeRecipients(config.cc),
     bcc: normalizeRecipients(config.bcc),
     subject: config.title || "No Subject",
@@ -2413,6 +2413,91 @@ const startEmailWorker = () => {
             }
 
             if (
+              config.event_name === "sales_d_quotation_header" ||
+              effectiveEventName === "sales_d_quotation_header"
+            ) {
+              console.log(
+                `sales_d_quotation_header: handling event for EntityId: ${EntityId}`,
+              );
+
+              let domainUrl = domainData?.url || "";
+              if (!domainUrl) {
+                const fetched = await fetchDomainData(dbName);
+                domainUrl = fetched?.url || "";
+              }
+
+              if (!domainUrl) {
+                throw new Error(
+                  `sales_d_quotation_header: Could not retrieve domain url for database ${dbName}`,
+                );
+              }
+
+              const response = await axios.post(
+                UDF_QUERY_URL,
+                {
+                  query: `select * from sales_d_quotation_header where id = ${EntityId}`,
+                },
+                {
+                  headers: {
+                    ...buildApiHeaders({ bearerToken: token }),
+                    "Content-Type": "application/json",
+                  },
+                },
+              );
+
+              const tblData = parseTblData(response.data);
+              if (!tblData || tblData.length === 0) {
+                throw new Error(
+                  `sales_d_quotation_header: No record found for EntityId ${EntityId}`,
+                );
+              }
+
+              const record = tblData[0];
+              const tempGuid = (record.temp_guid || "").trim();
+
+              console.log(
+                `sales_d_quotation_header: temp_guid is "${tempGuid}"`,
+              );
+
+              if (tempGuid) {
+                let baseUrl = domainUrl.trim();
+                if (baseUrl.endsWith("/")) {
+                  baseUrl = baseUrl.slice(0, -1);
+                }
+
+                const pureLink = `${baseUrl}/public/quotation?quot=${tempGuid}`;
+                const quotationLink = `<a href="${pureLink}">Click Here</a> &nbsp;-&nbsp; ${pureLink}`;
+                console.log(`Generated quotationLink: ${quotationLink}`);
+
+                if (config.title) {
+                  config.title = config.title.replace(
+                    /{{confirm_link}}/gi,
+                    quotationLink,
+                  );
+                }
+                if (config.msg_body) {
+                  config.msg_body = config.msg_body.replace(
+                    /{{confirm_link}}/gi,
+                    quotationLink,
+                  );
+                }
+              } else {
+                console.log(
+                  "sales_d_quotation_header: temp_guid is null/empty, omitting link",
+                );
+                if (config.title) {
+                  config.title = config.title.replace(/{{confirm_link}}/gi, "");
+                }
+                if (config.msg_body) {
+                  config.msg_body = config.msg_body.replace(
+                    /{{confirm_link}}/gi,
+                    "",
+                  );
+                }
+              }
+            }
+
+            if (
               config.event_name === "d_cf_filemaster_attachment" &&
               CombinedIds
             ) {
@@ -2513,6 +2598,25 @@ const startEmailWorker = () => {
                   let baseUrl = domainUrl.trim().replace(/\/$/, "");
                   const guid = (dynamicData.temp_guid || "").trim();
                   dynamicData.agreement_link = `${baseUrl}/public/agreement?agr=${guid}`;
+                }
+              }
+
+              if (
+                config.event_name === "sales_d_quotation_header" ||
+                effectiveEventName === "sales_d_quotation_header"
+              ) {
+                let domainUrl = domainData?.url || "";
+                if (!domainUrl) {
+                  const fetched = await fetchDomainData(dbName);
+                  domainUrl = fetched?.url || "";
+                }
+                const guid = (dynamicData.temp_guid || "").trim();
+                if (domainUrl && guid) {
+                  let baseUrl = domainUrl.trim().replace(/\/$/, "");
+                  const pureLink = `${baseUrl}/public/quotation?quot=${guid}`;
+                  dynamicData.confirm_link = `<a href="${pureLink}">Click Here</a> &nbsp;-&nbsp; ${pureLink}`;
+                } else {
+                  dynamicData.confirm_link = "";
                 }
               }
 
@@ -2722,9 +2826,19 @@ const startEmailWorker = () => {
           console.log("SMTP config received");
 
           if (domainData?.url && config.msg_body) {
-            config.msg_body = config.msg_body
-              .replace(/{{confirm_link}}/g, domainData.url)
-              .replace(/{{not_confirm_link}}/g, domainData.url);
+            if (
+              config.event_name !== "sales_d_quotation_header" &&
+              effectiveEventName !== "sales_d_quotation_header"
+            ) {
+              config.msg_body = config.msg_body.replace(
+                /{{confirm_link}}/g,
+                domainData.url,
+              );
+            }
+            config.msg_body = config.msg_body.replace(
+              /{{not_confirm_link}}/g,
+              domainData.url,
+            );
           }
 
           if (attachments.length > 0) {
