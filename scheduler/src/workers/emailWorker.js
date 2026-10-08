@@ -2051,13 +2051,6 @@ const startEmailWorker = () => {
             subjectTemplate: config.title,
             placeholdersInTitle,
             placeholdersInBody,
-            allConfigKeys: Object.keys(config),
-            emailFieldsInConfig: Object.keys(config)
-              .filter((k) => /to|cc|bcc|recipient|email/i.test(k))
-              .reduce((acc, k) => {
-                acc[k] = config[k];
-                return acc;
-              }, {}),
             rawRecipients: config.recipients || "",
             rawCc: config.cc || "",
             rawBcc: config.bcc || "",
@@ -2216,53 +2209,12 @@ const startEmailWorker = () => {
               if (Array.isArray(records) && records.length > 0) {
                 const row = records[0];
 
-                const existingTo = normalizeRecipients(
-                  config.recipients || config.to || config.to_email || config.email_to,
-                );
-                const dbTo = normalizeRecipients(
-                  row.to_email || row.email_to || row.to || row.email,
-                );
-                const mergedTo = [...new Set([...dbTo, ...existingTo])];
-                if (mergedTo.length > 0) {
-                  config.recipients = mergedTo.join(",");
+                if (row.to_email) {
+                  config.recipients = row.to_email;
                 }
 
-                const existingCc = normalizeRecipients(
-                  config.cc || config.Cc || config.CC || config.cc_email || config.email_cc,
-                );
-                const dbCc = normalizeRecipients(
-                  row.cc_email || row.email_cc || row.cc || row.Cc || row.CC,
-                );
-                const mergedCc = [...new Set([...dbCc, ...existingCc])];
-                config.cc = mergedCc.join(",");
-
-                const existingBcc = normalizeRecipients(
-                  config.bcc || config.Bcc || config.BCC || config.bcc_email || config.email_bcc,
-                );
-                const dbBcc = normalizeRecipients(
-                  row.bcc_email || row.email_bcc || row.bcc || row.Bcc || row.BCC,
-                );
-                const mergedBcc = [...new Set([...dbBcc, ...existingBcc])];
-                config.bcc = mergedBcc.join(",");
-
-                triggerLogger.info(
-                  "Updated recipients for external trigger email",
-                  {
-                    jobId: job.id,
-                    queueRowKeys: Object.keys(row),
-                    configCc: config.cc,
-                    configBcc: config.bcc,
-                    dbTo,
-                    existingTo,
-                    mergedTo,
-                    dbCc,
-                    existingCc,
-                    mergedCc,
-                    dbBcc,
-                    existingBcc,
-                    mergedBcc,
-                  },
-                );
+                config.cc = "";
+                config.bcc = "";
               }
             } catch (err) {
               console.error(
@@ -2329,16 +2281,7 @@ const startEmailWorker = () => {
                 records[0].to_email
               ) {
                 console.log("Original config.recipients:", config.recipients);
-                const existingRecipients = normalizeRecipients(
-                  config.recipients || config.to,
-                );
-                const dbRecipients = normalizeRecipients(records[0].to_email);
-                const mergedRecipients = [
-                  ...new Set([...dbRecipients, ...existingRecipients]),
-                ];
-                if (mergedRecipients.length > 0) {
-                  config.recipients = mergedRecipients.join(",");
-                }
+                config.recipients = records[0].to_email;
                 console.log("Updated config.recipients:", config.recipients);
               }
             } catch (err) {
