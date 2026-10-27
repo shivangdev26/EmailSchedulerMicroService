@@ -14,9 +14,12 @@ const triggerEvent = async (req, res) => {
       CombinedIds,
       event_name,
       eventName,
+      menu_id,
+      menuId,
     } = req.body;
 
     const resolvedEventName = event_name || eventName || null;
+    const resolvedMenuId = menu_id !== undefined ? menu_id : menuId;
 
     if (!dbName || !Email_Event_Config_Id) {
       return res.status(400).json({
@@ -48,6 +51,7 @@ const triggerEvent = async (req, res) => {
         EntityId,
         ChildId,
         CombinedIds,
+        menu_id: resolvedMenuId,
         event_name: resolvedEventName,
         domainData,
       },

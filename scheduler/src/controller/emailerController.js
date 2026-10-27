@@ -18,9 +18,12 @@ const triggerEmailer = async (req, res) => {
       CombinedIds,
       event_name,
       eventName,
+      menu_id,
+      menuId,
     } = req.body;
 
     const resolvedEventName = event_name || eventName || null;
+    const resolvedMenuId = menu_id !== undefined ? menu_id : menuId;
 
     console.log("Parsed data:", {
       dbName,
@@ -29,6 +32,7 @@ const triggerEmailer = async (req, res) => {
       EntityId,
       ChildId,
       CombinedIds,
+      menu_id: resolvedMenuId,
       event_name: resolvedEventName,
     });
 
@@ -79,6 +83,7 @@ const triggerEmailer = async (req, res) => {
       EntityId,
       ChildId,
       CombinedIds,
+      menu_id: resolvedMenuId,
       event_name: resolvedEventName,
       token,
       domainData,

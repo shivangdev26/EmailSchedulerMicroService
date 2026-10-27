@@ -1908,6 +1908,8 @@ const startEmailWorker = () => {
             ChildId,
             CombinedIds,
             domainData: jobDomainData,
+            menu_id,
+            menuId,
           } = job.data;
 
           let linkExpiryDate = null;
@@ -2289,16 +2291,51 @@ const startEmailWorker = () => {
             }
 
             try {
-              const object_type = config.object_type || config.event_name;
-              const baseLayoutPdfUrl =
-                "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/ReportViewer/Home/GetLayoutInPDF";
-              const layoutPdfUrl = replaceApiUrlPrefix(
-                baseLayoutPdfUrl,
-                domainData?.BLApiUrl,
-              );
+              const rawMenuId =
+                menu_id !== undefined
+                  ? menu_id
+                  : menuId !== undefined
+                    ? menuId
+                    : job.data?.menu_id !== undefined
+                      ? job.data?.menu_id
+                      : job.data?.menuId !== undefined
+                        ? job.data?.menuId
+                        : config?.menu_id !== undefined
+                          ? config?.menu_id
+                          : config?.menuId;
+
+              const parsedMenuId =
+                rawMenuId !== null && rawMenuId !== undefined && rawMenuId !== ""
+                  ? Number(rawMenuId)
+                  : NaN;
+
+              const hasValidMenuId = !isNaN(parsedMenuId) && parsedMenuId > 0;
+
+              const layoutPdfUrl = hasValidMenuId
+                ? replaceApiUrlPrefix(
+                    "https://logsuiteblapi.dcctz.com/DCCLogisticsSuite/ReportViewer/Home/GetLayoutInPDF_v1",
+                    domainData?.BLApiUrl,
+                  )
+                : replaceApiUrlPrefix(
+                    "https://logsuiteblapi_dev.dcctz.com/DCCLogisticsSuite/ReportViewer/Home/GetLayoutInPDF",
+                    domainData?.BLApiUrl,
+                  );
 
               const url = new URL(layoutPdfUrl);
-              url.searchParams.append("object_type", object_type);
+
+              if (hasValidMenuId) {
+                console.log(
+                  `Fetching layout PDF using GetLayoutInPDF_v1 with menu_id: ${parsedMenuId}`,
+                );
+                url.searchParams.append("menu_id", parsedMenuId.toString());
+              } else {
+                const object_type = config.object_type || config.event_name;
+                console.log(
+                  `Fetching layout PDF using GetLayoutInPDF with object_type: ${object_type}`,
+                );
+                url.searchParams.append("object_type", object_type);
+              }
+
               url.searchParams.append("database", dbName);
               url.searchParams.append("token", token);
               url.searchParams.append("id", EntityId.toString());
