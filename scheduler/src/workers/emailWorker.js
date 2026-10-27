@@ -2348,8 +2348,24 @@ const startEmailWorker = () => {
 
               console.log("Layout PDF response status:", pdfResponse.status);
 
+              const formatDbAttachmentName = (name) => {
+                if (!name || typeof name !== "string") return "Layout";
+                let cleaned = name
+                  .replace(/^DCC(?:Business|Logistics)?Suite[_\s]*/i, "")
+                  .replace(/^DCC[_\s]*/i, "")
+                  .trim();
+                if (cleaned.includes("_")) {
+                  cleaned = cleaned.split("_")[0];
+                }
+                if (!cleaned) return "Layout";
+                return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+              };
+
+              const dbPrefix = formatDbAttachmentName(dbName);
+              const layoutFilename = `${dbPrefix}_${EntityId}.pdf`;
+
               attachments.push({
-                filename: `Layout_${EntityId}.pdf`,
+                filename: layoutFilename,
                 content: pdfResponse.data.toString("base64"),
                 encoding: "base64",
                 contentType:
@@ -2358,7 +2374,7 @@ const startEmailWorker = () => {
               });
 
               console.log(
-                `Successfully fetched and added layout PDF for EntityId: ${EntityId}`,
+                `Successfully fetched and added layout PDF "${layoutFilename}" for EntityId: ${EntityId}`,
               );
             } catch (pdfErr) {
               console.error(
