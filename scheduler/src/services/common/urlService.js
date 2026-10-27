@@ -1,16 +1,26 @@
 const axios = require("axios");
 
 const replaceApiUrlPrefix = (baseUrl, blApiUrl) => {
-  if (baseUrl.includes("/ReportViewer/")) {
-    console.log(`Using original ReportViewer URL: ${baseUrl}`);
-    return baseUrl;
-  }
-
   if (!blApiUrl || !baseUrl) {
     console.log(`Using original API URL: ${baseUrl}`);
     return baseUrl;
   }
   const cleanedBlApiUrl = String(blApiUrl).replace(/[`\s]/g, "");
+
+  if (baseUrl.includes("/ReportViewer/")) {
+    try {
+      const blOrigin = new URL(cleanedBlApiUrl).origin;
+      const dynamicUrl = baseUrl.replace(/^https?:\/\/[^/]+/, blOrigin);
+      console.log(`Dynamic ReportViewer URL generated:`, {
+        original: baseUrl,
+        new: dynamicUrl,
+      });
+      return dynamicUrl;
+    } catch (e) {
+      console.warn(`Error updating ReportViewer origin: ${e.message}`);
+      return baseUrl;
+    }
+  }
 
   const prefixPattern = /^https?:\/\/[^/]+\/DCCLogisticsSuite\/[^/]+/;
   const dynamicUrl = baseUrl.replace(prefixPattern, cleanedBlApiUrl);
