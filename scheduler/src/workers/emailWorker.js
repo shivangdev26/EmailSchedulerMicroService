@@ -2305,7 +2305,9 @@ const startEmailWorker = () => {
                           : config?.menuId;
 
               const parsedMenuId =
-                rawMenuId !== null && rawMenuId !== undefined && rawMenuId !== ""
+                rawMenuId !== null &&
+                rawMenuId !== undefined &&
+                rawMenuId !== ""
                   ? Number(rawMenuId)
                   : NaN;
 
@@ -2937,9 +2939,11 @@ const startEmailWorker = () => {
             })),
           });
 
+          let responseMessage = "Email sent successfully";
+
           if (!emailPayload.to.length) {
             console.warn(
-              `No recipients for event ${Email_Event_Config_Id}, skipping`,
+              `No recipients for event ${Email_Event_Config_Id}, skipping dispatch`,
             );
             triggerLogger.warn(
               "No recipients found for trigger email; dispatch skipped",
@@ -2950,6 +2954,7 @@ const startEmailWorker = () => {
                 Email_Event_Config_Id,
               },
             );
+            responseMessage = "Email Id was missing";
           } else {
             triggerLogger.info("Dispatching trigger email", {
               jobId: job.id,
@@ -2979,7 +2984,9 @@ const startEmailWorker = () => {
             });
           }
 
-          console.log("Calling updateEmailQueueStatus with status SENT...");
+          console.log(
+            `Calling updateEmailQueueStatus with status SENT (${responseMessage})...`,
+          );
           await updateEmailQueueStatus({
             token,
             id: ID,
@@ -2992,7 +2999,7 @@ const startEmailWorker = () => {
             ChildId,
             CombinedIds,
             link_expiry: linkExpiryDate,
-            response: "Email sent successfully",
+            response: responseMessage,
             retry_count: job.attemptsMade,
             blApiUrl: domainData?.BLApiUrl,
           });
